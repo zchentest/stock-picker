@@ -1,0 +1,2067 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>自用选股器</title>
+  <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+  <style>
+    /* ==================== Reset & Xueqiu-style Variables ==================== */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg-primary:    #f5f5f5;
+      --bg-secondary:  #ffffff;
+      --bg-tertiary:   #fafafa;
+      --bg-card:       #ffffff;
+      --bg-hover:      #f0f6ff;
+      --border:        #e8e8e8;
+      --border-light:  #f0f0f0;
+      --text-primary:  #1a1a1a;
+      --text-secondary:#666666;
+      --text-muted:    #999999;
+      --rise:          #e74c3c;
+      --fall:          #2ecc71;
+      --flat:          #999999;
+      --accent:        #3498db;
+      --accent-dim:    #e8f4fd;
+      --accent-blue:   #2980b9;
+      --gold:          #f39c12;
+      --danger:        #e74c3c;
+      --shadow-card:   0 1px 3px rgba(0,0,0,0.08);
+      --shadow-float:  0 4px 12px rgba(0,0,0,0.12);
+      --font-mono:     'Consolas','Monaco','SF Mono','Menlo',monospace;
+      --font-sans:     -apple-system,BlinkMacSystemFont,'PingFang SC','Microsoft YaHei',sans-serif;
+      --radius:        6px;
+    }
+    html, body { height: 100%; font-family: var(--font-sans); font-size: 13px;
+      background: var(--bg-primary); color: var(--text-primary); overflow-x: hidden; }
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #d0d0d0; border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: #bbb; }
+
+    /* ==================== Layout ==================== */
+    .app { display: flex; flex-direction: column; height: 100vh; }
+
+    /* ==================== Navbar ==================== */
+    .navbar {
+      display: flex; align-items: center; gap: 16px;
+      background: var(--bg-secondary); border-bottom: 1px solid var(--border);
+      padding: 0 16px; height: 50px; flex-shrink: 0; z-index: 100;
+      box-shadow: var(--shadow-card);
+    }
+    .logo { display: flex; align-items: center; gap: 8px; text-decoration: none; flex-shrink: 0; }
+    .logo-icon {
+      width: 28px; height: 28px; background: linear-gradient(135deg, var(--rise), #ff8f00);
+      border-radius: 6px; display: flex; align-items: center; justify-content: center;
+      font-size: 16px; font-weight: 900; color: #fff;
+    }
+    .logo-text { font-size: 15px; font-weight: 700; color: var(--text-primary); letter-spacing: 1px; }
+
+    .search-box { position: relative; flex: 0 0 230px; }
+    .search-input {
+      width: 100%; padding: 6px 32px 6px 10px;
+      background: var(--bg-primary); border: 1px solid var(--border);
+      border-radius: var(--radius); color: var(--text-primary); font-size: 12px;
+      outline: none; transition: border-color .2s, box-shadow .2s;
+    }
+    .search-input:focus { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(52,152,219,.15); }
+    .search-input::placeholder { color: var(--text-muted); }
+    .search-icon {
+      position: absolute; right: 8px; top: 50%; transform: translateY(-50%);
+      color: var(--text-muted); font-size: 14px; pointer-events: none;
+    }
+    .search-dropdown {
+      position: absolute; top: calc(100% + 4px); left: 0; right: 0;
+      background: var(--bg-card); border: 1px solid var(--border);
+      border-radius: var(--radius); z-index: 9999; display: none; overflow: hidden;
+      box-shadow: var(--shadow-float);
+    }
+    .search-dropdown.show { display: block; }
+    .search-result-item {
+      padding: 7px 12px; cursor: pointer; display: flex;
+      align-items: center; justify-content: space-between;
+      transition: background .15s; gap: 8px;
+    }
+    .search-result-item:hover { background: var(--bg-hover); }
+    .search-result-left { display: flex; flex-direction: column; gap: 1px; flex: 1; min-width: 0; }
+    .search-result-name { font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .search-result-code { color: var(--text-muted); font-family: var(--font-mono); font-size: 10px; }
+    .search-add-btn {
+      flex-shrink: 0; padding: 2px 8px; border-radius: 4px; border: 1px solid var(--accent);
+      background: transparent; color: var(--accent); font-size: 11px; cursor: pointer;
+      transition: all .15s; white-space: nowrap;
+    }
+    .search-add-btn:hover { background: var(--accent); color: #fff; }
+    .search-add-btn.added { border-color: var(--border); color: var(--text-muted); cursor: default; }
+    .search-portfolio-btn {
+      flex-shrink: 0; padding: 2px 8px; border-radius: 4px; border: 1px solid var(--gold);
+      background: transparent; color: var(--gold); font-size: 11px; cursor: pointer;
+      transition: all .15s; white-space: nowrap; margin-left: 4px;
+    }
+    .search-portfolio-btn:hover { background: var(--gold); color: #fff; }
+
+    /* Indices in navbar */
+    .navbar-indices { display: flex; gap: 16px; margin-left: 4px; flex: 1; overflow: hidden; }
+    .nav-index {
+      display: flex; flex-direction: column; cursor: default;
+      padding: 4px 8px; border-radius: 4px; transition: background .15s; min-width: 100px;
+    }
+    .nav-index:hover { background: var(--bg-primary); }
+    .nav-index-row1 { display: flex; align-items: baseline; gap: 6px; }
+    .nav-index-name { font-size: 11px; color: var(--text-secondary); white-space: nowrap; }
+    .nav-index-price { font-size: 14px; font-weight: 600; font-family: var(--font-mono); }
+    .nav-index-row2 { font-size: 11px; font-family: var(--font-mono); }
+
+    /* API status */
+    .api-badge { flex-shrink: 0; padding: 3px 8px; border-radius: 4px; font-size: 11px; transition: all .3s; }
+    .api-badge.ok { background: #e8f8ef; border: 1px solid #c3e6cb; color: #2ecc71; }
+    .api-badge.error { background: #fef5e7; border: 1px solid #f9e2a4; color: #f39c12; }
+    .api-badge.loading { background: var(--accent-dim); border: 1px solid #b8daff; color: var(--accent); }
+    .time-display { font-size: 12px; color: var(--text-secondary); font-family: var(--font-mono); flex-shrink: 0; }
+
+    /* ==================== Main body ==================== */
+    .main-body { display: flex; flex: 1; overflow: hidden; }
+
+    /* ==================== Left Sidebar ==================== */
+    .sidebar-left {
+      width: 210px; flex-shrink: 0; background: var(--bg-secondary);
+      border-right: 1px solid var(--border); display: flex; flex-direction: column;
+      overflow: hidden;
+    }
+    .sidebar-tabs {
+      display: flex; border-bottom: 1px solid var(--border); flex-shrink: 0;
+    }
+    .sidebar-tab {
+      flex: 1; padding: 8px 4px; text-align: center; font-size: 12px;
+      cursor: pointer; color: var(--text-secondary); transition: all .15s;
+      border-bottom: 2px solid transparent; font-weight: 500;
+    }
+    .sidebar-tab:hover { color: var(--text-primary); }
+    .sidebar-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+    .sidebar-panel { display: none; flex-direction: column; flex: 1; overflow: hidden; }
+    .sidebar-panel.active { display: flex; }
+
+    .sidebar-title {
+      padding: 8px 12px; font-size: 12px; font-weight: 600;
+      color: var(--text-secondary); border-bottom: 1px solid var(--border-light);
+      display: flex; align-items: center; gap: 6px; flex-shrink: 0;
+    }
+    .sidebar-title::before {
+      content: ''; width: 3px; height: 12px;
+      background: var(--accent); border-radius: 2px;
+    }
+
+    .watchlist, .portfolio-list { flex: 1; overflow-y: auto; }
+
+    .watchlist-empty, .portfolio-empty {
+      padding: 20px 12px; text-align: center; color: var(--text-muted); font-size: 12px; line-height: 1.6;
+    }
+
+    .watchlist-item {
+      padding: 8px 12px; cursor: pointer; transition: background .15s;
+      border-bottom: 1px solid var(--border-light);
+      display: flex; flex-direction: column; gap: 2px; position: relative;
+    }
+    .watchlist-item:hover { background: var(--bg-hover); }
+    .watchlist-item.active { background: var(--accent-dim); border-left: 3px solid var(--accent); padding-left: 9px; }
+    .wl-row1 { display: flex; justify-content: space-between; align-items: baseline; }
+    .wl-name { font-size: 12px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 90px; }
+    .wl-price { font-size: 13px; font-weight: 700; font-family: var(--font-mono); }
+    .wl-row2 { display: flex; justify-content: space-between; align-items: center; }
+    .wl-code { font-size: 10px; color: var(--text-muted); font-family: var(--font-mono); }
+    .wl-pct { font-size: 11px; font-weight: 600; font-family: var(--font-mono); }
+    .wl-del {
+      position: absolute; top: 4px; right: 6px;
+      width: 16px; height: 16px; border-radius: 50%; background: var(--bg-primary);
+      border: 1px solid var(--border); color: var(--text-muted);
+      font-size: 10px; display: flex; align-items: center; justify-content: center;
+      opacity: 0; transition: opacity .15s; cursor: pointer; line-height: 1; z-index: 2;
+    }
+    .watchlist-item:hover .wl-del { opacity: 1; }
+    .wl-del:hover { background: var(--danger); border-color: var(--danger); color: #fff; }
+
+    /* Portfolio items */
+    .portfolio-item {
+      padding: 8px 12px; border-bottom: 1px solid var(--border-light);
+      display: flex; flex-direction: column; gap: 3px; position: relative; cursor: pointer;
+      transition: background .15s;
+    }
+    .portfolio-item:hover { background: var(--bg-hover); }
+    .pf-row1 { display: flex; justify-content: space-between; align-items: baseline; }
+    .pf-name { font-size: 12px; font-weight: 500; }
+    .pf-qty { font-size: 10px; color: var(--text-muted); margin-left: 4px; }
+    .pf-cost { font-size: 10px; color: var(--text-muted); font-family: var(--font-mono); }
+    .pf-row2 { display: flex; justify-content: space-between; align-items: baseline; }
+    .pf-price { font-size: 12px; font-family: var(--font-mono); font-weight: 600; }
+    .pf-pnl { font-size: 12px; font-weight: 700; font-family: var(--font-mono); }
+    .pf-pnl-pct { font-size: 10px; font-family: var(--font-mono); margin-left: 4px; }
+    .pf-del {
+      position: absolute; top: 4px; right: 6px;
+      width: 16px; height: 16px; border-radius: 50%; background: var(--bg-primary);
+      border: 1px solid var(--border); color: var(--text-muted);
+      font-size: 10px; display: flex; align-items: center; justify-content: center;
+      opacity: 0; transition: opacity .15s; cursor: pointer; line-height: 1; z-index: 2;
+    }
+    .portfolio-item:hover .pf-del { opacity: 1; }
+    .pf-del:hover { background: var(--danger); border-color: var(--danger); color: #fff; }
+
+    /* Portfolio toggle & summary */
+    .portfolio-toolbar {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 6px 12px; border-bottom: 1px solid var(--border-light); flex-shrink: 0;
+    }
+    .pf-toggle { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--text-secondary); }
+    .pf-toggle-switch {
+      width: 32px; height: 18px; border-radius: 9px; background: #ccc;
+      position: relative; cursor: pointer; transition: background .2s;
+    }
+    .pf-toggle-switch.on { background: var(--accent); }
+    .pf-toggle-switch::after {
+      content: ''; position: absolute; width: 14px; height: 14px; border-radius: 50%;
+      background: #fff; top: 2px; left: 2px; transition: left .2s;
+      box-shadow: 0 1px 2px rgba(0,0,0,.15);
+    }
+    .pf-toggle-switch.on::after { left: 16px; }
+
+    .portfolio-summary {
+      padding: 8px 12px; border-top: 1px solid var(--border); flex-shrink: 0;
+      background: var(--bg-tertiary); font-size: 11px;
+    }
+    .pf-sum-row { display: flex; justify-content: space-between; padding: 2px 0; }
+    .pf-sum-label { color: var(--text-secondary); }
+    .pf-sum-value { font-family: var(--font-mono); font-weight: 600; }
+    .pf-curve-btn {
+      width: calc(100% - 24px); margin: 8px 12px 12px; padding: 6px 0;
+      border: 1px solid var(--border); border-radius: 6px; background: var(--bg-secondary);
+      color: var(--text-primary); font-size: 12px; cursor: pointer; transition: all .15s;
+    }
+    .pf-curve-btn:hover { background: var(--accent-dim); border-color: var(--accent); color: var(--accent); }
+    /* 盈亏曲线弹窗 */
+    .pnl-curve-controls { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; flex-wrap: wrap; }
+    .pnl-quick-btns { display: flex; gap: 6px; }
+    .pnl-quick-btn {
+      padding: 4px 10px; border-radius: 14px; border: 1px solid var(--border); background: var(--bg-secondary);
+      font-size: 12px; color: var(--text-secondary); cursor: pointer; transition: all .15s;
+    }
+    .pnl-quick-btn:hover, .pnl-quick-btn.active {
+      background: var(--accent); color: #fff; border-color: var(--accent);
+    }
+    .pnl-date-sep { color: var(--text-muted); font-size: 12px; margin: 0 2px; }
+    .pnl-date-input {
+      padding: 5px 10px; border: 1px solid var(--border); border-radius: 14px; font-size: 12px;
+      color: var(--text-primary); background: var(--bg-secondary); outline: none;
+      transition: border-color .15s;
+    }
+    .pnl-date-input:focus { border-color: var(--accent); }
+    .pnl-query-btn {
+      padding: 5px 16px; border-radius: 14px; border: none;
+      background: var(--accent); color: #fff; font-size: 12px; cursor: pointer;
+      transition: opacity .15s; margin-left: 4px;
+    }
+    .pnl-query-btn:hover { opacity: .85; }
+
+    /* ==================== Center — Chart Area ==================== */
+    .center-area { flex: 1; display: flex; flex-direction: column; overflow: hidden; min-width: 0; }
+
+    .stock-header {
+      background: var(--bg-secondary); border-bottom: 1px solid var(--border);
+      padding: 10px 16px; flex-shrink: 0;
+    }
+    .stock-header-top { display: flex; align-items: flex-start; gap: 24px; flex-wrap: wrap; }
+    .sh-name-block { display: flex; flex-direction: column; gap: 2px; }
+    .sh-name { font-size: 20px; font-weight: 700; }
+    .sh-code { font-size: 11px; color: var(--text-secondary); font-family: var(--font-mono); }
+    .sh-price-block { display: flex; flex-direction: column; }
+    .sh-price { font-size: 32px; font-weight: 800; font-family: var(--font-mono); line-height: 1; }
+    .sh-change { font-size: 14px; font-family: var(--font-mono); font-weight: 600; margin-top: 3px; }
+    .sh-meta { display: flex; gap: 16px; flex-wrap: wrap; margin-top: 8px; }
+    .meta-item { display: flex; flex-direction: column; gap: 1px; }
+    .meta-label { font-size: 10px; color: var(--text-muted); }
+    .meta-value { font-size: 12px; font-family: var(--font-mono); font-weight: 500; }
+
+    .chart-toolbar {
+      display: flex; align-items: center; gap: 6px; padding: 6px 12px;
+      background: var(--bg-tertiary); border-bottom: 1px solid var(--border); flex-shrink: 0;
+    }
+    .period-btn {
+      padding: 3px 10px; border-radius: 4px; border: 1px solid var(--border);
+      background: transparent; color: var(--text-secondary); font-size: 12px;
+      cursor: pointer; transition: all .15s;
+    }
+    .period-btn:hover { border-color: var(--accent); color: var(--accent); }
+    .period-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+    .ma-toggles { display: flex; gap: 4px; margin-left: 12px; }
+    .ma-btn {
+      padding: 2px 8px; border-radius: 3px; border: 1px solid transparent;
+      font-size: 11px; cursor: pointer; transition: all .15s; background: transparent;
+    }
+    .ma-btn[data-ma="5"]  { color: #e67e22; border-color: #e67e22; }
+    .ma-btn[data-ma="10"] { color: #3498db; border-color: #3498db; }
+    .ma-btn[data-ma="20"] { color: #9b59b6; border-color: #9b59b6; }
+    .ma-btn[data-ma="60"] { color: #1abc9c; border-color: #1abc9c; }
+    .ma-btn.off { opacity: .3; }
+
+    .chart-wrap { flex: 1; position: relative; overflow: hidden; }
+    #klineChart { width: 100%; height: 100%; }
+    .chart-loading {
+      position: absolute; inset: 0; display: flex; align-items: center;
+      justify-content: center; background: rgba(245,245,245,.7);
+      color: var(--text-secondary); font-size: 13px; z-index: 10; display: none;
+    }
+    .chart-loading.show { display: flex; }
+
+    /* ==================== Right Sidebar ==================== */
+    .sidebar-right {
+      width: 260px; flex-shrink: 0; background: var(--bg-secondary);
+      border-left: 1px solid var(--border); display: flex; flex-direction: column; overflow: hidden;
+    }
+    .rank-tabs { display: flex; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+    .rank-tab {
+      flex: 1; padding: 8px 4px; text-align: center; font-size: 11px;
+      cursor: pointer; color: var(--text-secondary); transition: all .15s;
+      border-bottom: 2px solid transparent; font-weight: 500;
+    }
+    .rank-tab:hover { color: var(--text-primary); }
+    .rank-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+    .rank-list { flex: 1; overflow-y: auto; }
+    .rank-header {
+      display: flex; padding: 4px 12px; font-size: 10px; color: var(--text-muted);
+      background: var(--bg-tertiary); border-bottom: 1px solid var(--border-light);
+    }
+    .rank-header span:first-child { flex: 1; }
+    .rank-header span:last-child { width: 60px; text-align: right; }
+    .rank-item {
+      display: flex; align-items: center; padding: 6px 12px;
+      border-bottom: 1px solid var(--border-light);
+      cursor: pointer; transition: background .15s;
+    }
+    .rank-item:hover { background: var(--bg-hover); }
+    .rank-num { width: 18px; font-size: 11px; color: var(--text-muted); font-family: var(--font-mono); }
+    .rank-num.top3 { color: var(--gold); font-weight: 700; }
+    .rank-info { flex: 1; display: flex; flex-direction: column; gap: 1px; }
+    .rank-name { font-size: 12px; font-weight: 500; }
+    .rank-code { font-size: 10px; color: var(--text-muted); font-family: var(--font-mono); }
+    .rank-pct { width: 60px; text-align: right; font-size: 13px; font-weight: 700; font-family: var(--font-mono); }
+    .rank-empty { padding: 16px 12px; text-align: center; color: var(--text-muted); font-size: 11px; line-height: 1.6; }
+
+    /* ==================== Bottom — Index mini strip ==================== */
+    .index-strip {
+      background: var(--bg-secondary); border-top: 1px solid var(--border);
+      padding: 8px 16px; display: flex; gap: 16px; flex-shrink: 0; align-items: stretch;
+    }
+    .index-card {
+      flex: 1; display: flex; flex-direction: column; gap: 4px;
+      padding: 6px 10px; background: var(--bg-card);
+      border-radius: var(--radius); border: 1px solid var(--border-light);
+      cursor: default; transition: border-color .15s; min-width: 0;
+      box-shadow: var(--shadow-card);
+    }
+    .index-card:hover { border-color: var(--accent); }
+    .idx-top { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+    .idx-name { font-size: 11px; color: var(--text-secondary); white-space: nowrap; }
+    .idx-price { font-size: 15px; font-weight: 700; font-family: var(--font-mono); }
+    .idx-change { font-size: 11px; font-family: var(--font-mono); }
+    .idx-mini { height: 30px; }
+
+    /* ==================== Color helpers ==================== */
+    .rise { color: var(--rise); }
+    .fall { color: var(--fall); }
+    .flat { color: var(--flat); }
+
+    /* ==================== Sector panel ==================== */
+    .section-title {
+      padding: 6px 12px 4px; font-size: 11px; color: var(--text-muted);
+      border-bottom: 1px solid var(--border-light); background: var(--bg-tertiary);
+      text-transform: uppercase; letter-spacing: .5px;
+    }
+    .sector-panel { flex-shrink: 0; border-top: 1px solid var(--border); }
+    .sector-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: var(--border-light); }
+    .sector-cell {
+      background: var(--bg-card); padding: 6px 8px;
+      display: flex; flex-direction: column; gap: 2px; cursor: default; transition: background .15s;
+    }
+    .sector-cell:hover { background: var(--bg-hover); }
+    .sector-name { font-size: 11px; color: var(--text-secondary); }
+    .sector-pct { font-size: 13px; font-weight: 700; font-family: var(--font-mono); }
+    .sector-bar { height: 2px; border-radius: 1px; margin-top: 2px; }
+
+    /* ==================== Modal ==================== */
+    .modal-overlay {
+      position: fixed; inset: 0; background: rgba(0,0,0,.35); z-index: 10000;
+      display: flex; align-items: center; justify-content: center;
+      animation: fadeIn .15s;
+    }
+    @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+    .modal-box {
+      background: var(--bg-card); border-radius: 8px; padding: 20px;
+      width: 340px; box-shadow: var(--shadow-float);
+    }
+    .modal-title { font-size: 16px; font-weight: 700; margin-bottom: 16px; }
+    .modal-field { margin-bottom: 12px; }
+    .modal-field label { display: block; font-size: 12px; color: var(--text-secondary); margin-bottom: 4px; }
+    .modal-field input {
+      width: 100%; padding: 8px 10px; border: 1px solid var(--border);
+      border-radius: var(--radius); font-size: 14px; font-family: var(--font-mono);
+      outline: none; transition: border-color .2s;
+    }
+    .modal-field input:focus { border-color: var(--accent); }
+    .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+    .modal-btn {
+      padding: 6px 16px; border-radius: var(--radius); font-size: 13px;
+      cursor: pointer; transition: all .15s; border: 1px solid var(--border);
+      background: var(--bg-card); color: var(--text-primary);
+    }
+    .modal-btn:hover { background: var(--bg-primary); }
+    .modal-btn-primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+    .modal-btn-primary:hover { background: var(--accent-blue); }
+    .modal-btn-danger { background: #fff; color: var(--danger); border-color: var(--danger); }
+    .modal-btn-danger:hover { background: var(--danger); color: #fff; }
+
+    /* ==================== Toaster ==================== */
+    #toaster {
+      position: fixed; bottom: 20px; right: 20px; z-index: 9999;
+      display: flex; flex-direction: column; gap: 8px;
+    }
+    .toast {
+      padding: 8px 14px; background: var(--bg-card); border: 1px solid var(--border);
+      border-radius: var(--radius); font-size: 12px; color: var(--text-primary);
+      box-shadow: var(--shadow-float); animation: slideIn .3s ease;
+    }
+    @keyframes slideIn {
+      from { transform: translateX(120%); opacity: 0; }
+      to   { transform: translateX(0);    opacity: 1; }
+    }
+  </style>
+</head>
+<body>
+<div class="app">
+  <!-- ============ NAVBAR ============ -->
+  <nav class="navbar">
+    <a href="#" class="logo">
+      <div class="logo-icon">选</div>
+      <span class="logo-text">自用选股器</span>
+    </a>
+    <div class="search-box">
+      <input class="search-input" id="searchInput" type="text"
+             placeholder="搜索股票名称/代码" autocomplete="off" />
+      <span class="search-icon">🔍</span>
+      <div class="search-dropdown" id="searchDropdown"></div>
+    </div>
+    <div class="navbar-indices" id="navbarIndices"></div>
+    <div class="api-badge loading" id="apiBadge">● 连接中</div>
+    <div class="time-display" id="timeDisplay">--:--:--</div>
+  </nav>
+
+  <!-- ============ MAIN ============ -->
+  <div class="main-body">
+    <!-- ---- LEFT SIDEBAR ---- -->
+    <aside class="sidebar-left">
+      <div class="sidebar-tabs">
+        <div class="sidebar-tab active" data-tab="watchlist">自选股</div>
+        <div class="sidebar-tab" data-tab="portfolio">持仓</div>
+      </div>
+
+      <!-- Watchlist Panel -->
+      <div class="sidebar-panel active" id="panelWatchlist">
+        <div class="watchlist" id="watchlist"></div>
+      </div>
+
+      <!-- Portfolio Panel -->
+      <div class="sidebar-panel" id="panelPortfolio">
+        <div class="portfolio-toolbar">
+          <div class="pf-toggle">
+            <span>盈亏比例</span>
+            <div class="pf-toggle-switch" id="pctToggle"></div>
+          </div>
+        </div>
+        <div class="portfolio-list" id="portfolioList"></div>
+        <div class="portfolio-summary" id="portfolioSummary"></div>
+        <button class="pf-curve-btn" id="pfCurveBtn">📈 盈亏曲线</button>
+      </div>
+    </aside>
+
+    <!-- 盈亏曲线弹窗 -->
+    <div class="modal-overlay" id="pnlCurveModal" style="display:none">
+      <div class="modal-box" style="max-width:800px;width:90vw">
+        <div class="modal-header">
+          <span>持仓盈亏曲线</span>
+          <span class="modal-close" id="pnlCurveClose">×</span>
+        </div>
+        <div class="modal-body">
+          <div class="pnl-curve-controls">
+            <div class="pnl-quick-btns">
+              <button class="pnl-quick-btn" data-months="1">近1月</button>
+              <button class="pnl-quick-btn active" data-months="3">近3月</button>
+              <button class="pnl-quick-btn" data-months="6">近6月</button>
+              <button class="pnl-quick-btn" data-months="12">近1年</button>
+            </div>
+            <span class="pnl-date-sep">|</span>
+            <input type="date" id="pnlStartDate" class="pnl-date-input">
+            <button id="pnlCurveGo" class="pnl-query-btn">查询</button>
+          </div>
+          <div id="pnlCurveChart" style="width:100%;height:380px"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ---- CENTER ---- -->
+    <div class="center-area">
+      <div class="stock-header" id="stockHeader"></div>
+      <div class="chart-toolbar">
+        <button class="period-btn active" data-period="minute">分时</button>
+        <button class="period-btn" data-period="daily">日K</button>
+        <button class="period-btn" data-period="weekly">周K</button>
+        <button class="period-btn" data-period="monthly">月K</button>
+        <div class="ma-toggles">
+          <button class="ma-btn" data-ma="5">MA5</button>
+          <button class="ma-btn" data-ma="10">MA10</button>
+          <button class="ma-btn" data-ma="20">MA20</button>
+          <button class="ma-btn" data-ma="60">MA60</button>
+        </div>
+      </div>
+      <div class="chart-wrap">
+        <div id="klineChart"></div>
+        <div class="chart-loading" id="chartLoading">⏳ 加载中...</div>
+      </div>
+    </div>
+
+    <!-- ---- RIGHT SIDEBAR ---- -->
+    <aside class="sidebar-right">
+      <div class="rank-tabs">
+        <div class="rank-tab active" data-rank="rise">涨幅榜</div>
+        <div class="rank-tab" data-rank="fall">跌幅榜</div>
+        <div class="rank-tab" data-rank="turn">换手率</div>
+      </div>
+      <div class="rank-header"><span>名称/代码</span><span id="rankColLabel">涨跌幅</span></div>
+      <div class="rank-list" id="rankList"></div>
+      <div class="sector-panel">
+        <div class="section-title">板块行情（模拟）</div>
+        <div class="sector-grid" id="sectorGrid"></div>
+      </div>
+    </aside>
+  </div>
+
+  <!-- ============ BOTTOM INDEX STRIP ============ -->
+  <div class="index-strip" id="indexStrip"></div>
+</div>
+
+<!-- Toast container -->
+<div id="toaster"></div>
+
+<!-- Modal container -->
+<div id="modalContainer"></div>
+
+<script>
+/* =====================================================================
+ *  自用选股器 v4.0 — 雪球风格 + K线标注 + 虚拟持仓
+ * ===================================================================== */
+'use strict';
+
+/* ------------------------------------------------------------------ */
+/*  CONSTANTS                                                           */
+/* ------------------------------------------------------------------ */
+const INDEX_CODES = [
+  { code: 'sh000001', name: '上证指数', base: 3128.5 },
+  { code: 'sz399001', name: '深证成指', base: 9987.2 },
+  { code: 'sz399006', name: '创业板指', base: 1965.4 },
+  { code: 'sh000688', name: '科创50',   base: 1002.8 },
+];
+
+const DEFAULT_WATCHLIST = ['sh600519','sh601318','sz000001','sz002594','sz300750'];
+
+const SECTORS = [
+  { name: '人工智能', delta: 0 }, { name: '新能源车', delta: 0 },
+  { name: '光伏储能', delta: 0 }, { name: '医药生物', delta: 0 },
+  { name: '银行金融', delta: 0 }, { name: '半导体',   delta: 0 },
+  { name: '消费白酒', delta: 0 }, { name: '军工航天', delta: 0 },
+];
+
+const API_BASE = 'http://localhost:3001';
+
+/* ------------------------------------------------------------------ */
+/*  UTILITY                                                             */
+/* ------------------------------------------------------------------ */
+function makeRng(seed) {
+  let s = seed >>> 0;
+  return () => { s = (Math.imul(1664525, s) + 1013904223) >>> 0; return s / 0xFFFFFFFF; };
+}
+
+function fmt(n, d) {
+  if (isNaN(n) || n === null || n === undefined) return '--';
+  const num = Number(n);
+  if (d !== undefined) {
+    return num.toLocaleString('zh-CN', { minimumFractionDigits: d, maximumFractionDigits: d });
+  }
+  // 自适应精度：保留原始有效小数位（至少2位，最多4位）
+  const s = String(n);
+  const dotIdx = s.indexOf('.');
+  let decimals = 2;
+  if (dotIdx >= 0) {
+    decimals = s.length - dotIdx - 1;
+    if (decimals < 2) decimals = 2;
+    if (decimals > 4) decimals = 4;
+  }
+  return num.toLocaleString('zh-CN', { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
+}
+
+function fmtAmount(n) {
+  if (!n) return '--';
+  if (n >= 1e8) return (n / 1e8).toFixed(2) + '亿';
+  if (n >= 1e4) return (n / 1e4).toFixed(0) + '万';
+  return n.toFixed(0);
+}
+
+function colorClass(v) { return v > 0 ? 'rise' : v < 0 ? 'fall' : 'flat'; }
+
+function signStr(v, d) {
+  const n = parseFloat(v);
+  if (isNaN(n)) return '--';
+  if (d === undefined) {
+    const s = String(v);
+    const dotIdx = s.indexOf('.');
+    d = 2;
+    if (dotIdx >= 0) {
+      d = s.length - dotIdx - 1;
+      if (d < 2) d = 2;
+      if (d > 4) d = 4;
+    }
+  }
+  return (n >= 0 ? '+' : '') + n.toFixed(d);
+}
+
+function daySeed() {
+  const d = new Date();
+  return d.getFullYear() * 10000 + (d.getMonth() + 1) * 100 + d.getDate();
+}
+
+function codeHash(code) {
+  let h = 0;
+  for (let i = 0; i < code.length; i++) h = (h * 31 + code.charCodeAt(i)) >>> 0;
+  return h;
+}
+
+/* ------------------------------------------------------------------ */
+/*  SIM DATA SERVICE                                                    */
+/* ------------------------------------------------------------------ */
+class SimDataService {
+  constructor() { this._stocks = new Map(); this._indices = new Map(); this._initSectors(); }
+
+  ensureStock(code, name, basePrice) {
+    if (this._stocks.has(code)) return;
+    const base = basePrice || this._guessBase(code);
+    const rng = makeRng(daySeed() + codeHash(code));
+    const open = parseFloat((base * (1 + (rng() - 0.5) * 0.06)).toFixed(2));
+    const prevClose = base;
+    const ticks = this._buildTicks(open, base, rng);
+    const lastPrice = ticks.length > 0 ? ticks[ticks.length - 1].price : open;
+    const volM = 50;
+    const filled = ticks.length / 240;
+    this._stocks.set(code, {
+      code, name, base, open, prevClose, price: lastPrice,
+      high: Math.max(...ticks.map(t => t.price), open),
+      low:  Math.min(...ticks.map(t => t.price), open),
+      volume: Math.round(volM * 1e4 * (filled + (rng() - 0.5) * 0.1)),
+      amount: 0, volM, ticks, rng,
+      pe: parseFloat((10 + rng() * 40).toFixed(1)),
+      pb: parseFloat((1 + rng() * 9).toFixed(2)),
+    });
+    const st = this._stocks.get(code);
+    st.amount = st.volume * st.price;
+    st.turnover = parseFloat((st.volume / (st.volM * 1e4 * 5)).toFixed(4));
+  }
+
+  ensureIndex(code, name, base) {
+    if (this._indices.has(code)) return;
+    const rng = makeRng(daySeed() + 5000 + codeHash(code));
+    const open = parseFloat((base * (1 + (rng() - 0.5) * 0.04)).toFixed(2));
+    const ticks = this._buildTicks(open, base, rng, 0.002);
+    const price = ticks.length > 0 ? ticks[ticks.length - 1].price : open;
+    this._indices.set(code, {
+      code, name, base, open, prevClose: base,
+      price: parseFloat(price.toFixed(2)), ticks, rng,
+      miniTicks: (ticks.length >= 60 ? ticks.slice(-60) : ticks).map(t => t.price),
+    });
+  }
+
+  _buildTicks(open, base, rng, vol = 0.004) {
+    const tradeMins = this._tradingMinutes();
+    const ticks = []; let price = open;
+    tradeMins.forEach(t => {
+      price = price * (1 + (rng() - 0.5) * vol);
+      price = Math.max(price, base * 0.7); price = Math.min(price, base * 1.3);
+      ticks.push({ t, price: parseFloat(price.toFixed(2)) });
+    });
+    return ticks;
+  }
+
+  _tradingMinutes() {
+    const now = new Date(); const h = now.getHours(), m = now.getMinutes(); const mins = [];
+    for (let t = 9*60+30; t <= 11*60+30; t++) { const th=Math.floor(t/60),tm=t%60; if (h>th||(h===th&&m>=tm)) mins.push(t); }
+    for (let t = 13*60; t <= 15*60; t++) { const th=Math.floor(t/60),tm=t%60; if (h>th||(h===th&&m>=tm)) mins.push(t); }
+    return mins;
+  }
+
+  _guessBase(code) {
+    const num = parseInt(code.slice(2));
+    if (num===600519) return 1720; if (num===601318) return 47;
+    if (code.startsWith('sh6')) return 30+(num%100);
+    if (code.startsWith('sz0')) return 15+(num%50);
+    if (code.startsWith('sz3')) return 50+(num%200);
+    return 20+(num%80);
+  }
+
+  _initSectors() {
+    const rng = makeRng(daySeed() + 9999);
+    SECTORS.forEach(s => { s.delta = parseFloat(((rng() - 0.48) * 4).toFixed(2)); });
+  }
+
+  tick() {
+    this._stocks.forEach(st => {
+      const delta = (st.rng() - 0.49) * 0.006;
+      let p = st.price * (1 + delta);
+      p = Math.max(p, st.prevClose * 0.90); p = Math.min(p, st.prevClose * 1.10);
+      st.price = parseFloat(p.toFixed(2));
+      if (st.price > st.high) st.high = st.price; if (st.price < st.low) st.low = st.price;
+      const volInc = Math.round(st.volM * 1e4 * 0.001 * (st.rng() + 0.5));
+      st.volume += volInc; st.amount = st.volume * st.price;
+      st.turnover = parseFloat((st.volume / (st.volM * 1e4 * 5)).toFixed(4));
+    });
+    this._indices.forEach(idx => {
+      const delta = (idx.rng() - 0.49) * 0.003;
+      idx.price = parseFloat((idx.price * (1 + delta)).toFixed(2));
+      idx.miniTicks.push(idx.price); if (idx.miniTicks.length > 60) idx.miniTicks.shift();
+    });
+    SECTORS.forEach(s => {
+      s.delta = parseFloat((s.delta + (Math.random() - 0.5) * 0.1).toFixed(2));
+      s.delta = Math.max(-9.9, Math.min(9.9, s.delta));
+    });
+  }
+
+  getStock(code) { return this._stocks.get(code); }
+  getIndex(code) { return this._indices.get(code); }
+
+  getKlineData(code, period) {
+    const st = this._stocks.get(code); if (!st) return [];
+    if (period === 'minute') return this._buildIntradayKline(st);
+    return this._buildHistoryKline(st, period);
+  }
+
+  _buildIntradayKline(st) {
+    if (!st.ticks || st.ticks.length === 0) return [];
+    const bars = []; const barSize = 5;
+    let barStart = null, o=0, h=0, l=0, c=0;
+    st.ticks.forEach(tick => {
+      const barMin = Math.floor(tick.t / barSize) * barSize;
+      if (barStart === null) { barStart = barMin; o=h=l=c=tick.price; }
+      if (barMin !== barStart) {
+        bars.push({ date: this._minToLabel(barStart), open:o, close:c, low:l, high:h,
+          volume: Math.round(st.volume/Math.max(1,st.ticks.length)*barSize) });
+        barStart = barMin; o=h=l=c=tick.price;
+      } else { if (tick.price>h)h=tick.price; if (tick.price<l)l=tick.price; c=tick.price; }
+    });
+    if (barStart !== null) bars.push({ date: this._minToLabel(barStart), open:o, close:c, low:l, high:h,
+      volume: Math.round(st.volume/Math.max(1,st.ticks.length)*barSize) });
+    return bars;
+  }
+
+  _minToLabel(t) { return `${String(Math.floor(t/60)).padStart(2,'0')}:${String(t%60).padStart(2,'0')}`; }
+
+  _buildHistoryKline(st, period) {
+    const rng = makeRng(daySeed() + codeHash(st.code));
+    const count = period==='daily'?200:period==='weekly'?80:40;
+    const vol = period==='daily'?0.025:period==='weekly'?0.04:0.07;
+    const data = []; let price = st.prevClose;
+    for (let i = count; i >= 0; i--) {
+      const date = this._offsetDate(i, period);
+      const o=price, h=o*(1+rng()*vol), l=o*(1-rng()*vol), c=l+rng()*(h-l);
+      const v = Math.round(st.volM*1e4*(period==='daily'?1:period==='weekly'?5:20)*(0.5+rng()));
+      data.push({ date, open:parseFloat(o.toFixed(2)), close:parseFloat(c.toFixed(2)),
+        low:parseFloat(l.toFixed(2)), high:parseFloat(h.toFixed(2)), volume:v });
+      price = c;
+    }
+    if (data.length > 0) { data[data.length-1].close = st.price; data[data.length-1].date = this._offsetDate(0, period); }
+    return data;
+  }
+
+  _offsetDate(daysBack, period) {
+    const d = new Date(); const mult = period==='weekly'?7:period==='monthly'?30:1;
+    d.setDate(d.getDate() - daysBack * mult);
+    if (period==='weekly') return `${d.getFullYear()}-W${String(Math.ceil(d.getDate()/7)).padStart(2,'0')}`;
+    if (period==='monthly') return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/*  API DATA SERVICE                                                    */
+/* ------------------------------------------------------------------ */
+class ApiDataService {
+  constructor(sim) { this._sim = sim; this._klineCache = new Map(); this._klineCacheMs = 30000; }
+
+  async fetchQuotes(codes) {
+    if (!codes || codes.length === 0) return [];
+    try {
+      const ctrl = new AbortController(); const timer = setTimeout(() => ctrl.abort(), 6000);
+      const res = await fetch(`${API_BASE}/api/quote?codes=${codes.join(',')}`, { signal: ctrl.signal });
+      clearTimeout(timer);
+      const json = await res.json();
+      return Array.isArray(json) ? json : [];
+    } catch (e) { console.warn('[fetchQuotes]', e.message); return []; }
+  }
+
+  async searchStocks(keyword) {
+    if (!keyword) return [];
+    try {
+      const ctrl = new AbortController(); const timer = setTimeout(() => ctrl.abort(), 5000);
+      const res = await fetch(`${API_BASE}/api/search?keyword=${encodeURIComponent(keyword)}`, { signal: ctrl.signal });
+      clearTimeout(timer);
+      const json = await res.json();
+      return Array.isArray(json) ? json : [];
+    } catch (e) { console.warn('[searchStocks]', e.message); return []; }
+  }
+
+  async fetchKline(code, type, datalen) {
+    const key = `${code}-${type}${datalen ? '-' + datalen : ''}`;
+    const cached = this._klineCache.get(key);
+    if (cached && Date.now() - cached.ts < this._klineCacheMs) return cached.data;
+    try {
+      const ctrl = new AbortController(); const timer = setTimeout(() => ctrl.abort(), 8000);
+      let url = `${API_BASE}/api/kline?code=${code}&type=${type}`;
+      if (datalen) url += `&datalen=${datalen}`;
+      const res = await fetch(url, { signal: ctrl.signal });
+      clearTimeout(timer);
+      const json = await res.json();
+      if (Array.isArray(json) && json.length > 0) {
+        this._klineCache.set(key, { data: json, ts: Date.now() }); return json;
+      }
+    } catch (e) { console.warn('[fetchKline]', e.message); }
+    return this._sim.getKlineData(code, type);
+  }
+
+  clearKlineCache(code) {
+    for (const key of this._klineCache.keys()) { if (key.startsWith(code + '-')) this._klineCache.delete(key); }
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/*  PORTFOLIO MANAGER                                                   */
+/* ------------------------------------------------------------------ */
+class PortfolioManager {
+  constructor() {
+    this._items = this._load();
+    this._showPct = localStorage.getItem('showProfitPct') !== 'false';
+  }
+
+  _load() {
+    try { const raw = localStorage.getItem('portfolio'); if (raw) return JSON.parse(raw); } catch(_){}
+    return [];
+  }
+
+  _save() { localStorage.setItem('portfolio', JSON.stringify(this._items)); }
+
+  get showPct() { return this._showPct; }
+  set showPct(v) { this._showPct = v; localStorage.setItem('showProfitPct', String(v)); }
+
+  getAll() { return [...this._items]; }
+
+  add(code, name, costPrice, quantity) {
+    const existing = this._items.find(i => i.code === code);
+    if (existing) {
+      existing.name = name || existing.name;
+      existing.costPrice = costPrice;
+      existing.quantity = quantity;
+    } else {
+      this._items.push({ code, name, costPrice, quantity });
+    }
+    this._save();
+  }
+
+  update(code, costPrice, quantity) {
+    const item = this._items.find(i => i.code === code);
+    if (item) { item.costPrice = costPrice; item.quantity = quantity; this._save(); }
+  }
+
+  remove(code) {
+    this._items = this._items.filter(i => i.code !== code); this._save();
+  }
+
+  getByCode(code) { return this._items.find(i => i.code === code); }
+
+  /**
+   * 计算持仓盈亏。
+   * @param {Map<string,object>} quoteCache - code → quote
+   */
+  computePnL(quoteCache) {
+    let totalMarketValue = 0, totalCost = 0;
+    const details = this._items.map(item => {
+      const q = quoteCache.get(item.code);
+      const price = q ? q.price : 0;
+      const marketValue = price * item.quantity;
+      const costValue = item.costPrice * item.quantity;
+      const pnl = marketValue - costValue;
+      const pnlPct = costValue !== 0 ? ((pnl / costValue) * 100) : 0;
+      totalMarketValue += marketValue;
+      totalCost += costValue;
+      return { ...item, price, marketValue, costValue, pnl, pnlPct };
+    });
+    const totalPnl = totalMarketValue - totalCost;
+    const totalPnlPct = totalCost !== 0 ? ((totalPnl / totalCost) * 100) : 0;
+    return { details, totalMarketValue, totalCost, totalPnl, totalPnlPct };
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/*  CHART SERVICE (with markPoint for high/low)                        */
+/* ------------------------------------------------------------------ */
+class ChartService {
+  constructor(domId) {
+    this.dom = document.getElementById(domId);
+    this.chart = echarts.init(this.dom, null, { renderer: 'canvas' });
+    this.code = null; this.period = 'minute';
+    this.maVisible = { 5: true, 10: true, 20: true, 60: true };
+    /** @type {Array|null} stored kline data for dataZoom recalculations */
+    this._currentData = null;
+    window.addEventListener('resize', () => this.chart.resize());
+  }
+
+  render(code, period, data) {
+    this.code = code; this.period = period;
+    if (!data || data.length === 0) {
+      this.chart.setOption({ graphic: [{ type: 'text', left: 'center', top: 'middle',
+        style: { text: '暂无数据', fill: '#999', font: '14px sans-serif' } }] }, true);
+      return;
+    }
+
+    const dates = data.map(d => d.date);
+    const ohlc  = data.map(d => [d.open, d.close, d.low, d.high]);
+    const volumes = data.map(d => d.volume);
+    const isRise  = data.map(d => d.close >= d.open);
+
+    // ---- Find high/low points for markPoint ----
+    let highIdx = 0, lowIdx = 0;
+    data.forEach((d, i) => {
+      if (d.high > data[highIdx].high) highIdx = i;
+      if (d.low  < data[lowIdx].low)  lowIdx  = i;
+    });
+
+    const maColors = { 5: '#e67e22', 10: '#3498db', 20: '#9b59b6', 60: '#1abc9c' };
+
+    const maSeries = [5, 10, 20, 60].map(n => ({
+      name: `MA${n}`, type: 'line',
+      data: this._calcMA(data.map(d => d.close), n),
+      smooth: true, symbol: 'none',
+      lineStyle: { color: maColors[n], width: 1, opacity: this.maVisible[n] ? 1 : 0 },
+      itemStyle: { color: maColors[n], opacity: this.maVisible[n] ? 1 : 0 },
+      xAxisIndex: 0, yAxisIndex: 0,
+    }));
+
+    const option = {
+      backgroundColor: '#fff',
+      animation: false,
+      tooltip: {
+        trigger: 'axis',
+        axisPointer: { type: 'cross', lineStyle: { color: '#ccc' }, crossStyle: { color: '#ccc' } },
+        backgroundColor: '#fff', borderColor: '#e8e8e8',
+        textStyle: { color: '#1a1a1a', fontSize: 12, fontFamily: 'Consolas,monospace' },
+        formatter: (params) => this._tooltipFormatter(params, data),
+      },
+      legend: {
+        data: ['MA5','MA10','MA20','MA60'],
+        textStyle: { color: '#999', fontSize: 11 },
+        top: 4, right: 16, icon: 'rect', itemWidth: 16, itemHeight: 3,
+      },
+      grid: [
+        { top: 40, left: 60, right: 16, bottom: '35%' },
+        { top: '68%', left: 60, right: 16, bottom: 30 },
+      ],
+      xAxis: [
+        { type: 'category', data: dates, gridIndex: 0,
+          axisLine: { lineStyle: { color: '#e8e8e8' } },
+          axisLabel: { color: '#999', fontSize: 10 },
+          splitLine: { lineStyle: { color: '#f5f5f5' } },
+          axisTick: { show: false } },
+        { type: 'category', data: dates, gridIndex: 1,
+          axisLine: { lineStyle: { color: '#e8e8e8' } },
+          axisLabel: { show: false },
+          splitLine: { lineStyle: { color: '#f5f5f5' } },
+          axisTick: { show: false } },
+      ],
+      yAxis: [
+        { type: 'value', gridIndex: 0, scale: true,
+          splitLine: { lineStyle: { color: '#f5f5f5' } },
+          axisLabel: { color: '#999', fontSize: 10, fontFamily: 'Consolas,monospace' },
+          axisLine: { show: false }, axisTick: { show: false } },
+        { type: 'value', gridIndex: 1, scale: true,
+          splitLine: { lineStyle: { color: '#f5f5f5' } },
+          axisLabel: { color: '#999', fontSize: 9 },
+          axisLine: { show: false }, axisTick: { show: false } },
+      ],
+      dataZoom: [
+        { type: 'inside', xAxisIndex: [0, 1],
+          start: Math.max(0, 100 - Math.round(100 * 60 / Math.max(dates.length, 1))), end: 100 },
+        { type: 'slider', xAxisIndex: [0, 1], bottom: 2, height: 20,
+          start: Math.max(0, 100 - Math.round(100 * 60 / Math.max(dates.length, 1))), end: 100,
+          backgroundColor: '#fafafa', fillerColor: 'rgba(52,152,219,.1)',
+          borderColor: '#e8e8e8', textStyle: { color: '#999', fontSize: 9 },
+          handleStyle: { color: '#3498db' } },
+      ],
+      series: [
+        {
+          name: 'K线', type: 'candlestick', data: ohlc, xAxisIndex: 0, yAxisIndex: 0,
+          itemStyle: { color: '#e74c3c', color0: '#2ecc71', borderColor: '#e74c3c', borderColor0: '#2ecc71' },
+          markPoint: {
+            symbol: 'none',
+            animation: false,
+            label: { show: true, fontSize: 11, fontFamily: 'Consolas,monospace', fontWeight: 'bold' },
+            data: this._buildHighLowMarkData(data, dates, highIdx, lowIdx),
+          },
+        },
+        ...maSeries,
+        {
+          name: '成交量', type: 'bar',
+          data: volumes.map((v, i) => ({
+            value: v, itemStyle: { color: isRise[i] ? 'rgba(231,76,60,.6)' : 'rgba(46,204,113,.6)' },
+          })),
+          xAxisIndex: 1, yAxisIndex: 1, barMaxWidth: 8,
+        },
+      ],
+    };
+    this._currentData = data;
+    this.chart.setOption(option, true);
+
+    // Listen for dataZoom to dynamically update high/low marks
+    this.chart.off('datazoom');
+    this.chart.on('datazoom', () => {
+      this._updateHighLowMark();
+    });
+  }
+
+  /**
+   * Build markPoint data array for high/low labels.
+   * @param {Array} data  kline data array
+   * @param {Array} dates date labels
+   * @param {number} highIdx
+   * @param {number} lowIdx
+   * @returns {Array}
+   */
+  _buildHighLowMarkData(data, dates, highIdx, lowIdx) {
+    return [
+      {
+        name: '最高',
+        coord: [dates[highIdx], data[highIdx].high],
+        value: data[highIdx].high,
+        label: {
+          formatter: (p) => '高 ' + fmt(p.value),
+          color: '#e74c3c',
+          fontSize: 11,
+          fontFamily: 'Consolas,monospace',
+          fontWeight: 'bold',
+          position: 'top',
+        },
+      },
+      {
+        name: '最低',
+        coord: [dates[lowIdx], data[lowIdx].low],
+        value: data[lowIdx].low,
+        label: {
+          formatter: (p) => '低 ' + fmt(p.value),
+          color: '#2ecc71',
+          fontSize: 11,
+          fontFamily: 'Consolas,monospace',
+          fontWeight: 'bold',
+          position: 'bottom',
+        },
+      },
+    ];
+  }
+
+  /**
+   * Recalculate high/low marks based on current visible dataZoom range.
+   */
+  _updateHighLowMark() {
+    const data = this._currentData;
+    if (!data || data.length === 0) return;
+
+    const option = this.chart.getOption();
+    const dzArr = option && option.dataZoom;
+    if (!dzArr || dzArr.length === 0) return;
+
+    // Get start/end percentages from dataZoom
+    const dz = dzArr[0];
+    const startPct = dz.start != null ? dz.start : 0;
+    const endPct   = dz.end   != null ? dz.end   : 100;
+
+    const len = data.length;
+    const startIdx = Math.floor(len * startPct / 100);
+    const endIdx   = Math.min(len - 1, Math.ceil(len * endPct / 100));
+
+    if (startIdx >= endIdx) return;
+
+    // Find high/low in visible range
+    let highIdx = startIdx, lowIdx = startIdx;
+    for (let i = startIdx; i <= endIdx; i++) {
+      if (data[i].high > data[highIdx].high) highIdx = i;
+      if (data[i].low  < data[lowIdx].low)   lowIdx  = i;
+    }
+
+    const dates = data.map(d => d.date);
+    const markData = this._buildHighLowMarkData(data, dates, highIdx, lowIdx);
+
+    // Only update the markPoint on the candlestick series (series index 0)
+    this.chart.setOption({
+      series: [{
+        markPoint: {
+          symbol: 'none',
+          animation: false,
+          label: { show: true, fontSize: 11, fontFamily: 'Consolas,monospace', fontWeight: 'bold' },
+          data: markData,
+        },
+      }],
+    });
+  }
+
+  toggleMA(maNum) { this.maVisible[maNum] = !this.maVisible[maNum]; }
+
+  _calcMA(closes, n) {
+    return closes.map((_, i) => {
+      if (i < n - 1) return null;
+      return parseFloat((closes.slice(i - n + 1, i + 1).reduce((a, b) => a + b, 0) / n).toFixed(2));
+    });
+  }
+
+  _tooltipFormatter(params, data) {
+    const idx = params[0]?.dataIndex; if (idx === undefined) return '';
+    const d = data[idx]; if (!d) return '';
+    const chg = d.close - d.open; const pct = (chg / (d.open || 1) * 100).toFixed(2);
+    const clr = chg >= 0 ? '#e74c3c' : '#2ecc71';
+    const lines = [
+      `<b style="color:#1a1a1a">${d.date}</b>`,
+      `<span style="color:#999">开</span> <b style="color:${clr}">${d.open}</b>`,
+      `<span style="color:#999">收</span> <b style="color:${clr}">${d.close}</b>`,
+      `<span style="color:#999">高</span> <b style="color:#e74c3c">${d.high}</b>`,
+      `<span style="color:#999">低</span> <b style="color:#2ecc71">${d.low}</b>`,
+      `<span style="color:#999">涨跌</span> <b style="color:${clr}">${signStr(chg)} (${signStr(parseFloat(pct))}%)</b>`,
+      `<span style="color:#999">量</span> <b>${fmtAmount(d.volume * d.close)}</b>`,
+    ];
+    params.forEach(p => {
+      if (p.seriesName && p.seriesName.startsWith('MA') && p.value !== null) {
+        const mc = {MA5:'#e67e22',MA10:'#3498db',MA20:'#9b59b6',MA60:'#1abc9c'}[p.seriesName]||'#666';
+        lines.push(`<span style="color:${mc}">${p.seriesName}: ${p.value}</span>`);
+      }
+    });
+    return lines.join('<br>');
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/*  MINI CHART SERVICE                                                 */
+/* ------------------------------------------------------------------ */
+class MiniChartService {
+  constructor() { this._charts = new Map(); }
+
+  render(domId, ticks, isRise) {
+    const dom = document.getElementById(domId);
+    if (!dom || !ticks || ticks.length === 0) return;
+    let chart = this._charts.get(domId);
+    if (!chart) { chart = echarts.init(dom, null, { renderer: 'svg' }); this._charts.set(domId, chart); }
+    const color = isRise ? '#e74c3c' : '#2ecc71';
+    chart.setOption({
+      animation: false,
+      grid: { top: 2, left: 0, right: 0, bottom: 2 },
+      xAxis: { type: 'category', show: false, data: ticks.map((_, i) => i) },
+      yAxis: { type: 'value', show: false, scale: true },
+      series: [{
+        type: 'line', data: ticks, smooth: true, symbol: 'none',
+        lineStyle: { color, width: 1.5 },
+        areaStyle: {
+          color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
+            colorStops: [
+              { offset: 0, color: isRise ? 'rgba(231,76,60,0.2)' : 'rgba(46,204,113,0.2)' },
+              { offset: 1, color: isRise ? 'rgba(231,76,60,0)' : 'rgba(46,204,113,0)' },
+            ] }
+        },
+      }],
+      tooltip: { show: false },
+    }, true);
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/*  MODAL HELPER                                                       */
+/* ------------------------------------------------------------------ */
+function showModal(title, fields, actions) {
+  return new Promise((resolve) => {
+    const container = document.getElementById('modalContainer');
+    const fieldHtml = fields.map(f => `
+      <div class="modal-field">
+        <label>${f.label}</label>
+        <input type="${f.type||'text'}" id="modal-${f.key}" value="${f.value ?? ''}"
+               placeholder="${f.placeholder||''}" step="${f.step||'any'}" />
+      </div>`).join('');
+    const actionHtml = actions.map(a => `
+      <button class="modal-btn${a.primary?' modal-btn-primary':''}${a.danger?' modal-btn-danger':''}"
+              data-action="${a.key}">${a.label}</button>`).join('');
+    container.innerHTML = `
+      <div class="modal-overlay" id="modalOverlay">
+        <div class="modal-box">
+          <div class="modal-title">${title}</div>
+          ${fieldHtml}
+          <div class="modal-actions">${actionHtml}</div>
+        </div>
+      </div>`;
+
+    const overlay = document.getElementById('modalOverlay');
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) { container.innerHTML = ''; resolve(null); }
+    });
+
+    overlay.querySelectorAll('.modal-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const action = btn.dataset.action;
+        const values = {};
+        fields.forEach(f => { values[f.key] = document.getElementById(`modal-${f.key}`).value; });
+        container.innerHTML = '';
+        resolve({ action, values });
+      });
+    });
+
+    // Focus first input
+    const firstInput = overlay.querySelector('input');
+    if (firstInput) firstInput.focus();
+  });
+}
+
+/* ------------------------------------------------------------------ */
+/*  APP CONTROLLER                                                      */
+/* ------------------------------------------------------------------ */
+class App {
+  constructor() {
+    this._watchCodes = this._loadWatchlist();
+    this._quoteCache = new Map();
+    this._indexCache = new Map();
+    this._indexMiniTicks = new Map();
+    INDEX_CODES.forEach(idx => this._indexMiniTicks.set(idx.code, []));
+
+    this._sim = new SimDataService();
+    this._api = new ApiDataService(this._sim);
+    this._chart = new ChartService('klineChart');
+    this._miniSvc = new MiniChartService();
+    this._portfolio = new PortfolioManager();
+
+    this._activeCode = this._watchCodes[0] || null;
+    this._activePeriod = 'minute';
+    this._activeRank = 'rise';
+    this._activeSidebarTab = 'watchlist';
+    this._apiStatus = 'loading';
+
+    INDEX_CODES.forEach(idx => this._sim.ensureIndex(idx.code, idx.name, idx.base));
+
+    this._bindEvents();
+    this._bootRender();
+    this._startRefresh();
+  }
+
+  _loadWatchlist() {
+    try { const raw = localStorage.getItem('watchlist');
+      if (raw) { const arr = JSON.parse(raw); if (Array.isArray(arr) && arr.length > 0) return arr; }
+    } catch(_){}
+    return [...DEFAULT_WATCHLIST];
+  }
+  _saveWatchlist() { localStorage.setItem('watchlist', JSON.stringify(this._watchCodes)); }
+
+  async _bootRender() {
+    this._renderWatchlist();
+    this._renderNavbarIndices(null);
+    this._renderIndexStrip(null);
+    this._renderStockHeader(null);
+    this._renderRankList();
+    this._renderSectors();
+    this._renderPortfolio();
+    await this._refreshAll();
+  }
+
+  /* ---- Data refresh ---- */
+  async _refreshAll() {
+    await Promise.all([this._refreshWatchlist(), this._refreshIndices()]);
+    this._renderPortfolio();
+  }
+
+  async _refreshWatchlist() {
+    if (this._watchCodes.length === 0) {
+      this._renderWatchlist(); this._renderStockHeader(null);
+      this._renderRankList(); return;
+    }
+    const quotes = await this._api.fetchQuotes(this._watchCodes);
+    if (quotes.length > 0) {
+      this._setApiStatus('ok');
+      quotes.forEach(q => {
+        this._quoteCache.set(q.code, q);
+        this._sim.ensureStock(q.code, q.name, q.price);
+        const simSt = this._sim.getStock(q.code);
+        if (simSt) {
+          simSt.price = q.price; simSt.open = q.open; simSt.prevClose = q.prevClose;
+          simSt.high = q.high; simSt.low = q.low; simSt.name = q.name;
+          simSt.volume = q.volume; simSt.amount = q.amount;
+        }
+      });
+      this._watchCodes.forEach(code => {
+        if (!this._quoteCache.has(code)) this._sim.ensureStock(code, code, undefined);
+      });
+    } else {
+      this._setApiStatus('error');
+      this._sim.tick();
+      this._watchCodes.forEach(code => {
+        this._sim.ensureStock(code, code, undefined);
+        const simSt = this._sim.getStock(code);
+        if (simSt) this._quoteCache.set(code, this._simToQuote(simSt));
+      });
+    }
+    this._renderWatchlist();
+    if (this._activeCode && this._quoteCache.has(this._activeCode)) this._renderStockHeader(this._activeCode);
+    this._renderRankList();
+  }
+
+  async _refreshIndices() {
+    const codes = INDEX_CODES.map(i => i.code);
+    const quotes = await this._api.fetchQuotes(codes);
+    if (quotes.length > 0) {
+      quotes.forEach(q => {
+        this._indexCache.set(q.code, q);
+        const ticks = this._indexMiniTicks.get(q.code) || [];
+        ticks.push(q.price); if (ticks.length > 60) ticks.shift();
+        this._indexMiniTicks.set(q.code, ticks);
+      });
+    } else {
+      this._sim.tick();
+      INDEX_CODES.forEach(idx => {
+        const simIdx = this._sim.getIndex(idx.code); if (!simIdx) return;
+        this._indexCache.set(idx.code, this._simToQuote(simIdx));
+        this._indexMiniTicks.set(idx.code, [...simIdx.miniTicks]);
+      });
+    }
+    this._renderNavbarIndices(this._indexCache);
+    this._renderIndexStrip(this._indexCache);
+  }
+
+  _simToQuote(simSt) {
+    const price = simSt.price || 0; const prevClose = simSt.prevClose || price;
+    const change = parseFloat((price - prevClose).toFixed(4));
+    const changePct = prevClose !== 0 ? parseFloat(((change / prevClose) * 100).toFixed(2)) : 0;
+    return { code: simSt.code, name: simSt.name, price, open: simSt.open || price, prevClose,
+      high: simSt.high || price, low: simSt.low || price, change, changePct,
+      volume: simSt.volume || 0, amount: simSt.amount || 0, date: '', time: '(模拟)' };
+  }
+
+  _setApiStatus(status) {
+    this._apiStatus = status;
+    const badge = document.getElementById('apiBadge'); if (!badge) return;
+    badge.className = `api-badge ${status}`;
+    badge.textContent = status === 'ok' ? '● 实时行情' : status === 'error' ? '● 行情异常' : '● 连接中';
+  }
+
+  async _loadAndRenderKline(code, period) {
+    const loading = document.getElementById('chartLoading');
+    if (loading) loading.classList.add('show');
+    try {
+      const data = await this._api.fetchKline(code, period);
+      this._chart.render(code, period, data);
+    } catch (e) {
+      this._chart.render(code, period, this._sim.getKlineData(code, period));
+    } finally {
+      if (loading) loading.classList.remove('show');
+    }
+  }
+
+  _startRefresh() {
+    setInterval(() => this._refreshAll(), 3000);
+    setInterval(() => this._updateClock(), 1000);
+    this._updateClock();
+  }
+
+  /* ---- Watchlist management ---- */
+  addToWatchlist(code, name) {
+    if (this._watchCodes.includes(code)) { this._toast(`${name || code} 已在自选股中`); return; }
+    this._watchCodes.push(code); this._saveWatchlist();
+    this._sim.ensureStock(code, name || code, undefined);
+    if (!this._activeCode) this._activeCode = code;
+    this._toast(`✓ 已添加 ${name || code}`);
+    this._refreshWatchlist();
+  }
+
+  removeFromWatchlist(code) {
+    const idx = this._watchCodes.indexOf(code); if (idx < 0) return;
+    const q = this._quoteCache.get(code); const name = q ? q.name : code;
+    this._watchCodes.splice(idx, 1); this._quoteCache.delete(code); this._saveWatchlist();
+    if (this._activeCode === code) {
+      this._activeCode = this._watchCodes[0] || null;
+      if (this._activeCode) this._loadAndRenderKline(this._activeCode, this._activePeriod);
+    }
+    this._toast(`已移除 ${name}`);
+    this._renderWatchlist(); this._renderStockHeader(this._activeCode); this._renderRankList();
+  }
+
+  /* ---- Render: Watchlist ---- */
+  _renderWatchlist() {
+    const el = document.getElementById('watchlist');
+    if (this._watchCodes.length === 0) {
+      el.innerHTML = `<div class="watchlist-empty">还没有自选股<br>在顶部搜索框添加</div>`;
+      return;
+    }
+    el.innerHTML = this._watchCodes.map(code => {
+      const q = this._quoteCache.get(code);
+      if (!q) return `
+        <div class="watchlist-item ${code===this._activeCode?'active':''}" data-code="${code}">
+          <div class="wl-row1"><span class="wl-name">${code}</span><span class="wl-price flat">--</span></div>
+          <div class="wl-row2"><span class="wl-code">${code.slice(2)}</span><span class="wl-pct flat">加载中</span></div>
+          <span class="wl-del" title="移除自选">×</span>
+        </div>`;
+      const cls = colorClass(q.changePct);
+      return `
+        <div class="watchlist-item ${code===this._activeCode?'active':''}" data-code="${code}">
+          <div class="wl-row1"><span class="wl-name">${q.name}</span><span class="wl-price ${cls}">${fmt(q.price)}</span></div>
+          <div class="wl-row2"><span class="wl-code">${code.slice(2)}</span><span class="wl-pct ${cls}">${signStr(q.changePct)}%</span></div>
+          <span class="wl-del" title="移除自选">×</span>
+        </div>`;
+    }).join('');
+    this._bindWatchlistClicks();
+  }
+
+  _bindWatchlistClicks() {
+    document.querySelectorAll('.watchlist-item').forEach(item => {
+      item.addEventListener('click', (e) => {
+        if (e.target.classList.contains('wl-del')) return;
+        this._activeCode = item.dataset.code;
+        this._renderWatchlist(); this._renderStockHeader(this._activeCode);
+        this._api.clearKlineCache(this._activeCode);
+        this._loadAndRenderKline(this._activeCode, this._activePeriod);
+      });
+      const delBtn = item.querySelector('.wl-del');
+      if (delBtn) delBtn.addEventListener('click', (e) => {
+        e.stopPropagation(); this.removeFromWatchlist(item.dataset.code);
+      });
+    });
+    if (this._activeCode && !this._chart.code) this._loadAndRenderKline(this._activeCode, this._activePeriod);
+  }
+
+  /* ---- Render: Portfolio ---- */
+  _renderPortfolio() {
+    const { details, totalMarketValue, totalCost, totalPnl, totalPnlPct } =
+      this._portfolio.computePnL(this._quoteCache);
+
+    const toggle = document.getElementById('pctToggle');
+    if (toggle) { if (this._portfolio.showPct) toggle.classList.add('on'); else toggle.classList.remove('on'); }
+
+    const list = document.getElementById('portfolioList');
+    if (details.length === 0) {
+      list.innerHTML = `<div class="portfolio-empty">暂无持仓<br>在搜索结果中添加持仓</div>`;
+    } else {
+      list.innerHTML = details.map(d => {
+        const pnlCls = colorClass(d.pnl);
+        const pctStr = this._portfolio.showPct ? ` <span class="pf-pnl-pct ${pnlCls}">(${signStr(d.pnlPct)}%)</span>` : '';
+        return `
+          <div class="portfolio-item" data-code="${d.code}">
+            <div class="pf-row1">
+              <span><span class="pf-name">${d.name}</span><span class="pf-qty">${d.quantity}股</span></span>
+              <span class="pf-cost">成本 ${fmt(d.costPrice)}</span>
+            </div>
+            <div class="pf-row2">
+              <span class="pf-price ${pnlCls}">${fmt(d.price)}</span>
+              <span class="pf-pnl ${pnlCls}">${signStr(d.pnl)}${pctStr}</span>
+            </div>
+            <span class="pf-del" title="删除持仓">×</span>
+          </div>`;
+      }).join('');
+
+      list.querySelectorAll('.portfolio-item').forEach(item => {
+        item.addEventListener('click', (e) => {
+          if (e.target.classList.contains('pf-del')) return;
+          this._editPortfolioItem(item.dataset.code);
+        });
+        const delBtn = item.querySelector('.pf-del');
+        if (delBtn) delBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          this._portfolio.remove(item.dataset.code);
+          this._toast('已删除持仓');
+          this._renderPortfolio();
+        });
+      });
+    }
+
+    // Summary
+    const sumEl = document.getElementById('portfolioSummary');
+    if (details.length === 0) { sumEl.innerHTML = ''; return; }
+    const totalPnlCls = colorClass(totalPnl);
+    sumEl.innerHTML = `
+      <div class="pf-sum-row"><span class="pf-sum-label">总市值</span><span class="pf-sum-value">${fmtAmount(totalMarketValue)}</span></div>
+      <div class="pf-sum-row"><span class="pf-sum-label">总成本</span><span class="pf-sum-value">${fmtAmount(totalCost)}</span></div>
+      <div class="pf-sum-row"><span class="pf-sum-label">总盈亏</span><span class="pf-sum-value ${totalPnlCls}">${signStr(totalPnl)} (${signStr(totalPnlPct)}%)</span></div>`;
+  }
+
+  async _addPortfolioFromSearch(code, name) {
+    // Ensure in watchlist first
+    if (!this._watchCodes.includes(code)) this.addToWatchlist(code, name);
+
+    const result = await showModal(`添加持仓 — ${name}`, [
+      { key: 'costPrice', label: '成本价', type: 'number', placeholder: '0.00', step: '0.001' },
+      { key: 'quantity',  label: '持仓数量', type: 'number', placeholder: '100', step: '1' },
+    ], [
+      { key: 'cancel', label: '取消' },
+      { key: 'confirm', label: '确认添加', primary: true },
+    ]);
+    if (!result || result.action !== 'confirm') return;
+    const costPrice = parseFloat(result.values.costPrice);
+    const quantity = parseInt(result.values.quantity, 10);
+    if (isNaN(costPrice) || costPrice <= 0 || isNaN(quantity) || quantity <= 0) {
+      this._toast('请输入有效的成本价和数量'); return;
+    }
+    this._portfolio.add(code, name, costPrice, quantity);
+    this._toast(`✓ 已添加 ${name} 持仓`);
+    this._renderPortfolio();
+  }
+
+  async _editPortfolioItem(code) {
+    const item = this._portfolio.getByCode(code);
+    if (!item) return;
+    const result = await showModal(`编辑持仓 — ${item.name}`, [
+      { key: 'costPrice', label: '成本价', type: 'number', value: item.costPrice, step: '0.001' },
+      { key: 'quantity',  label: '持仓数量', type: 'number', value: item.quantity, step: '1' },
+    ], [
+      { key: 'delete', label: '删除持仓', danger: true },
+      { key: 'cancel', label: '取消' },
+      { key: 'confirm', label: '保存', primary: true },
+    ]);
+    if (!result) return;
+    if (result.action === 'delete') {
+      this._portfolio.remove(code); this._toast('已删除持仓'); this._renderPortfolio(); return;
+    }
+    if (result.action === 'confirm') {
+      const costPrice = parseFloat(result.values.costPrice);
+      const quantity = parseInt(result.values.quantity, 10);
+      if (isNaN(costPrice) || costPrice <= 0 || isNaN(quantity) || quantity <= 0) {
+        this._toast('请输入有效的成本价和数量'); return;
+      }
+      this._portfolio.update(code, costPrice, quantity);
+      this._toast('持仓已更新'); this._renderPortfolio();
+    }
+  }
+
+  /* ---- Render: Stock Header ---- */
+  _renderStockHeader(code) {
+    const el = document.getElementById('stockHeader');
+    if (!code || !this._quoteCache.has(code)) {
+      el.innerHTML = `<div class="stock-header-top"><div class="sh-name-block"><span class="sh-name" style="color:var(--text-muted)">请选择或添加自选股</span></div></div>`;
+      return;
+    }
+    const q = this._quoteCache.get(code);
+    const cls = colorClass(q.changePct);
+    const metas = [
+      { label: '今开', value: fmt(q.open) },
+      { label: '昨收', value: fmt(q.prevClose) },
+      { label: '最高', value: `<span class="rise">${fmt(q.high)}</span>` },
+      { label: '最低', value: `<span class="fall">${fmt(q.low)}</span>` },
+      { label: '成交量', value: fmt(q.volume, 0) + '手' },
+      { label: '成交额', value: fmtAmount(q.amount) },
+      { label: '日期', value: q.date || '--' },
+      { label: '时间', value: q.time || '--' },
+    ];
+    el.innerHTML = `
+      <div class="stock-header-top">
+        <div class="sh-name-block"><span class="sh-name">${q.name}</span><span class="sh-code">${q.code.toUpperCase()}</span></div>
+        <div class="sh-price-block">
+          <span class="sh-price ${cls}">${fmt(q.price)}</span>
+          <span class="sh-change ${cls}">${signStr(q.change)} (${signStr(q.changePct)}%)</span>
+        </div>
+      </div>
+      <div class="sh-meta">${metas.map(m => `<div class="meta-item"><span class="meta-label">${m.label}</span><span class="meta-value">${m.value}</span></div>`).join('')}</div>`;
+  }
+
+  /* ---- Render: Rank List ---- */
+  _renderRankList() {
+    const label = { rise: '涨跌幅', fall: '涨跌幅', turn: '换手率' }[this._activeRank];
+    document.getElementById('rankColLabel').textContent = label;
+    const all = this._watchCodes.map(code => this._quoteCache.get(code)).filter(Boolean);
+    if (all.length < 2) {
+      document.getElementById('rankList').innerHTML = `<div class="rank-empty">请添加更多自选股<br>以查看排行榜</div>`;
+      return;
+    }
+    let sorted;
+    if (this._activeRank === 'rise') sorted = [...all].sort((a,b) => b.changePct - a.changePct);
+    else if (this._activeRank === 'fall') sorted = [...all].sort((a,b) => a.changePct - b.changePct);
+    else sorted = [...all].sort((a,b) => (b.amount||0) - (a.amount||0));
+    sorted = sorted.slice(0, 10);
+    document.getElementById('rankList').innerHTML = sorted.map((q, i) => {
+      const val = this._activeRank === 'turn' ? fmtAmount(q.amount) : signStr(q.changePct) + '%';
+      const cls = this._activeRank === 'turn' ? 'flat' : colorClass(q.changePct);
+      return `
+        <div class="rank-item" data-code="${q.code}">
+          <span class="rank-num ${i<3?'top3':''}">${i+1}</span>
+          <div class="rank-info"><span class="rank-name">${q.name}</span><span class="rank-code">${q.code.slice(2)}</span></div>
+          <span class="rank-pct ${cls}">${val}</span>
+        </div>`;
+    }).join('');
+    document.getElementById('rankList').querySelectorAll('.rank-item').forEach(item => {
+      item.addEventListener('click', () => {
+        const code = item.dataset.code;
+        if (this._watchCodes.includes(code)) {
+          this._activeCode = code; this._renderWatchlist(); this._renderStockHeader(code);
+          this._api.clearKlineCache(code); this._loadAndRenderKline(code, this._activePeriod);
+          this._toast(`切换到 ${this._quoteCache.get(code)?.name || code}`);
+        }
+      });
+    });
+  }
+
+  /* ---- Render: Sectors ---- */
+  _renderSectors() {
+    document.getElementById('sectorGrid').innerHTML = SECTORS.map(s => {
+      const cls = colorClass(s.delta); const barW = Math.min(100, Math.abs(s.delta)/10*100);
+      const barColor = s.delta >= 0 ? 'var(--rise)' : 'var(--fall)';
+      return `<div class="sector-cell"><span class="sector-name">${s.name}</span><span class="sector-pct ${cls}">${signStr(s.delta)}%</span><div class="sector-bar" style="width:${barW}%;background:${barColor}"></div></div>`;
+    }).join('');
+  }
+
+  /* ---- Render: Index Strip & Navbar ---- */
+  _renderNavbarIndices(cacheMap) {
+    document.getElementById('navbarIndices').innerHTML = INDEX_CODES.map(idx => {
+      const q = cacheMap && cacheMap.get(idx.code);
+      if (!q) return `<div class="nav-index"><div class="nav-index-row1"><span class="nav-index-name">${idx.name}</span><span class="nav-index-price flat">--</span></div><div class="nav-index-row2 flat">--</div></div>`;
+      const cls = colorClass(q.changePct);
+      return `<div class="nav-index"><div class="nav-index-row1"><span class="nav-index-name">${idx.name}</span><span class="nav-index-price ${cls}">${fmt(q.price)}</span></div><div class="nav-index-row2 ${cls}">${signStr(q.change)} (${signStr(q.changePct)}%)</div></div>`;
+    }).join('');
+  }
+
+  _renderIndexStrip(cacheMap) {
+    document.getElementById('indexStrip').innerHTML = INDEX_CODES.map(idx => {
+      const q = cacheMap && cacheMap.get(idx.code);
+      const price = q ? q.price : null;
+      const cls = q ? colorClass(q.changePct) : 'flat';
+      const changeText = q ? `${signStr(q.change)} / ${signStr(q.changePct)}%` : '--';
+      return `<div class="index-card"><div class="idx-top"><span class="idx-name">${idx.name}</span><span class="idx-price ${cls}">${price!==null?fmt(price):'--'}</span></div><div class="idx-change ${cls}">${changeText}</div><div class="idx-mini" id="mini-${idx.code}"></div></div>`;
+    }).join('');
+    INDEX_CODES.forEach(idx => {
+      const ticks = this._indexMiniTicks.get(idx.code) || [];
+      const q = cacheMap && cacheMap.get(idx.code);
+      this._miniSvc.render(`mini-${idx.code}`, ticks, q ? q.changePct >= 0 : true);
+    });
+  }
+
+  _updateClock() {
+    const pad = n => String(n).padStart(2,'0');
+    const now = new Date();
+    document.getElementById('timeDisplay').textContent = `${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
+  }
+
+  /* ---- Event binding ---- */
+  _bindEvents() {
+    // Period buttons
+    document.querySelectorAll('.period-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.period-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        this._activePeriod = btn.dataset.period;
+        if (this._activeCode) {
+          this._api.clearKlineCache(this._activeCode);
+          this._loadAndRenderKline(this._activeCode, this._activePeriod);
+        }
+      });
+    });
+
+    // MA toggle
+    document.querySelectorAll('.ma-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        btn.classList.toggle('off');
+        this._chart.toggleMA(parseInt(btn.dataset.ma));
+        if (this._activeCode) this._loadAndRenderKline(this._activeCode, this._activePeriod);
+      });
+    });
+
+    // Rank tabs
+    document.querySelectorAll('.rank-tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        document.querySelectorAll('.rank-tab').forEach(t => t.classList.remove('active'));
+        tab.classList.add('active');
+        this._activeRank = tab.dataset.rank;
+        this._renderRankList();
+      });
+    });
+
+    // Sidebar tabs
+    document.querySelectorAll('.sidebar-tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        document.querySelectorAll('.sidebar-tab').forEach(t => t.classList.remove('active'));
+        tab.classList.add('active');
+        this._activeSidebarTab = tab.dataset.tab;
+        document.querySelectorAll('.sidebar-panel').forEach(p => p.classList.remove('active'));
+        document.getElementById(tab.dataset.tab === 'watchlist' ? 'panelWatchlist' : 'panelPortfolio').classList.add('active');
+      });
+    });
+
+    // Portfolio toggle
+    document.getElementById('pctToggle').addEventListener('click', () => {
+      this._portfolio.showPct = !this._portfolio.showPct;
+      this._renderPortfolio();
+    });
+
+    // Search
+    let _searchTimer = null;
+    const searchInput = document.getElementById('searchInput');
+    const searchDropdown = document.getElementById('searchDropdown');
+
+    searchInput.addEventListener('input', () => {
+      clearTimeout(_searchTimer);
+      const q = searchInput.value.trim();
+      if (!q) { searchDropdown.classList.remove('show'); return; }
+      _searchTimer = setTimeout(() => this._doSearch(q), 300);
+    });
+
+    document.addEventListener('click', (e) => {
+      if (!e.target.closest('.search-box')) searchDropdown.classList.remove('show');
+    });
+
+    searchInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') { searchDropdown.classList.remove('show'); searchInput.blur(); }
+    });
+
+    // 盈亏曲线按钮
+    document.getElementById('pfCurveBtn').addEventListener('click', () => this._showPnlCurveModal());
+    document.getElementById('pnlCurveClose').addEventListener('click', () => {
+      document.getElementById('pnlCurveModal').style.display = 'none';
+    });
+    document.getElementById('pnlCurveModal').addEventListener('click', (e) => {
+      if (e.target.id === 'pnlCurveModal') e.target.style.display = 'none';
+    });
+    document.getElementById('pnlCurveGo').addEventListener('click', () => this._loadPnlCurve());
+
+    // 快捷日期按钮
+    function setQuickDate(months, btn) {
+      const d = new Date(); d.setMonth(d.getMonth() - months);
+      document.getElementById('pnlStartDate').value = d.toISOString().slice(0,10);
+      document.querySelectorAll('.pnl-quick-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+    }
+    document.querySelectorAll('.pnl-quick-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const months = parseInt(btn.dataset.months);
+        setQuickDate(months, btn);
+      });
+    });
+
+    // 手动修改日期时取消快捷按钮选中
+    document.getElementById('pnlStartDate').addEventListener('change', () => {
+      document.querySelectorAll('.pnl-quick-btn').forEach(b => b.classList.remove('active'));
+    });
+
+    // 默认起始日期：3个月前（对应"近3月"按钮选中）
+    const threeMonthsAgo = new Date(); threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3);
+    document.getElementById('pnlStartDate').value = threeMonthsAgo.toISOString().slice(0,10);
+  }
+
+  async _doSearch(keyword) {
+    const searchDropdown = document.getElementById('searchDropdown');
+    searchDropdown.innerHTML = `<div class="search-result-item" style="color:var(--text-muted);cursor:default">搜索中…</div>`;
+    searchDropdown.classList.add('show');
+
+    const results = await this._api.searchStocks(keyword);
+    if (!results || results.length === 0) {
+      searchDropdown.innerHTML = `<div class="search-result-item" style="color:var(--text-muted);cursor:default">未找到结果</div>`;
+      return;
+    }
+
+    searchDropdown.innerHTML = results.map(r => {
+      const inList = this._watchCodes.includes(r.code);
+      const inPortfolio = !!this._portfolio.getByCode(r.code);
+      return `
+        <div class="search-result-item" data-code="${r.code}" data-name="${r.name}">
+          <div class="search-result-left">
+            <span class="search-result-name">${r.name}</span>
+            <span class="search-result-code">${r.code.slice(2)} · ${r.code.startsWith('sh')?'沪':'深'}</span>
+          </div>
+          <div style="display:flex;gap:4px">
+            <button class="search-add-btn${inList?' added':''}" data-code="${r.code}" data-name="${r.name}">
+              ${inList?'已添加':'+ 自选'}</button>
+            <button class="search-portfolio-btn${inPortfolio?' added':''}" data-code="${r.code}" data-name="${r.name}"
+                    ${inPortfolio?'style="border-color:var(--border);color:var(--text-muted);cursor:default"':''}>
+              ${inPortfolio?'已持仓':'+ 持仓'}</button>
+          </div>
+        </div>`;
+    }).join('');
+
+    // Click row → preview or add
+    searchDropdown.querySelectorAll('.search-result-item').forEach(item => {
+      item.addEventListener('click', (e) => {
+        if (e.target.closest('.search-add-btn') || e.target.closest('.search-portfolio-btn')) return;
+        const code = item.dataset.code, name = item.dataset.name;
+        if (this._watchCodes.includes(code)) {
+          this._activeCode = code; this._renderWatchlist(); this._renderStockHeader(code);
+          this._loadAndRenderKline(code, this._activePeriod);
+        } else {
+          this.addToWatchlist(code, name);
+        }
+        searchDropdown.classList.remove('show');
+        searchInput.value = '';
+      });
+    });
+
+    // + 自选 button
+    searchDropdown.querySelectorAll('.search-add-btn').forEach(btn => {
+      if (btn.classList.contains('added')) return;
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.addToWatchlist(btn.dataset.code, btn.dataset.name);
+        btn.textContent = '已添加'; btn.classList.add('added');
+      });
+    });
+
+    // + 持仓 button
+    searchDropdown.querySelectorAll('.search-portfolio-btn').forEach(btn => {
+      if (btn.classList.contains('added')) return;
+      btn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        searchDropdown.classList.remove('show');
+        searchInput.value = '';
+        await this._addPortfolioFromSearch(btn.dataset.code, btn.dataset.name);
+      });
+    });
+  }
+
+  _toast(msg, duration = 2500) {
+    const el = document.createElement('div'); el.className = 'toast'; el.textContent = msg;
+    document.getElementById('toaster').appendChild(el);
+    setTimeout(() => el.remove(), duration);
+  }
+
+  /* ---- 盈亏曲线 ---- */
+  _showPnlCurveModal() {
+    const items = this._portfolio.getAll();
+    if (items.length === 0) { this._toast('请先添加持仓'); return; }
+    document.getElementById('pnlCurveModal').style.display = 'flex';
+  }
+
+  async _loadPnlCurve() {
+    const startDate = document.getElementById('pnlStartDate').value;
+    if (!startDate) { this._toast('请选择起始日期'); return; }
+
+    const items = this._portfolio.getAll();
+    if (items.length === 0) { this._toast('请先添加持仓'); return; }
+
+    const chartEl = document.getElementById('pnlCurveChart');
+    // 销毁旧实例，避免二次查询报错
+    if (this._pnlChart) {
+      this._pnlChart.dispose();
+      this._pnlChart = null;
+    }
+    chartEl.innerHTML = '<div style="text-align:center;padding:60px;color:#999">加载中…</div>';
+
+    try {
+      // 取每只持仓股票的日线K线（取600条确保覆盖起始日期）
+      const allKlines = {};
+      await Promise.all(items.map(async (item) => {
+        try {
+          const data = await this._api.fetchKline(item.code, 'daily', 600);
+          if (Array.isArray(data) && data.length > 0) {
+            allKlines[item.code] = data.filter(d => d.date >= startDate);
+          }
+        } catch (_) { /* 单只获取失败不影响整体 */ }
+      }));
+
+      // 合并所有日期
+      const dateSet = new Set();
+      Object.values(allKlines).forEach(klines => klines.forEach(k => dateSet.add(k.date)));
+      const dates = [...dateSet].sort();
+
+      if (dates.length === 0) {
+        chartEl.innerHTML = '<div style="text-align:center;padding:60px;color:#999">无数据</div>';
+        return;
+      }
+
+      // 构建每日收盘价映射 date -> { code: closePrice }
+      const closeMap = {};
+      dates.forEach(d => { closeMap[d] = {}; });
+      Object.entries(allKlines).forEach(([code, klines]) => {
+        klines.forEach(k => { if (closeMap[k.date]) closeMap[k.date][code] = Number(k.close); });
+      });
+
+      // 前向填充：如果某天某股票没有数据，用最近的前一个交易日的收盘价
+      const codeList = items.map(it => it.code);
+      const lastClose = {};
+      dates.forEach(d => {
+        codeList.forEach(code => {
+          if (closeMap[d][code] !== undefined) {
+            lastClose[code] = closeMap[d][code];
+          } else {
+            closeMap[d][code] = lastClose[code] || 0;
+          }
+        });
+      });
+
+      // 计算每日总市值和总成本
+      const marketValues = [];
+      const costValues = [];
+      let totalCost = 0;
+      items.forEach(it => { totalCost += it.costPrice * it.quantity; });
+
+      dates.forEach(d => {
+        let mv = 0;
+        items.forEach(it => {
+          const close = closeMap[d][it.code] || 0;
+          mv += close * it.quantity;
+        });
+        marketValues.push(parseFloat(mv.toFixed(2)));
+        costValues.push(parseFloat(totalCost.toFixed(2)));
+      });
+
+      // 盈亏曲线
+      const pnlValues = marketValues.map((mv, i) => parseFloat((mv - costValues[i]).toFixed(2)));
+      const pnlPctValues = costValues.map((cost, i) =>
+        cost > 0 ? parseFloat(((pnlValues[i] / cost) * 100).toFixed(2)) : 0
+      );
+
+      // ---- 个股独立盈亏曲线 ----
+      const COLORS = ['#e74c3c', '#3498db', '#f39c12', '#9b59b6', '#1abc9c', '#e67e22', '#2ecc71', '#34495e'];
+      const showIndividual = items.length < 4;
+
+      // 计算每只持仓的独立盈亏
+      const individualPnl = items.map((item, idx) => {
+        const values = dates.map(d => {
+          const close = closeMap[d][item.code] || 0;
+          return parseFloat(((close - item.costPrice) * item.quantity).toFixed(2));
+        });
+        const maxVal = Math.max(...values);
+        const minVal = Math.min(...values);
+        return { item, values, maxVal, minVal, color: COLORS[idx % COLORS.length] };
+      });
+
+      // 合并盈亏的 markLine
+      const pnlMax = Math.max(...pnlValues);
+      const pnlMin = Math.min(...pnlValues);
+
+      // 构建 series 数组
+      const seriesList = [];
+      const legendData = ['总市值', '总成本', '盈亏金额'];
+
+      // 总市值
+      seriesList.push({
+        name: '总市值', type: 'line', data: marketValues,
+        lineStyle: { color: '#3498db', width: 2 },
+        itemStyle: { color: '#3498db' }, symbol: 'none',
+        areaStyle: { color: 'rgba(52,152,219,0.08)' },
+      });
+
+      // 总成本
+      seriesList.push({
+        name: '总成本', type: 'line', data: costValues,
+        lineStyle: { color: '#999', width: 1, type: 'dashed' },
+        itemStyle: { color: '#999' }, symbol: 'none',
+      });
+
+      // 盈亏金额（合并）+ markLine
+      seriesList.push({
+        name: '盈亏金额', type: 'line', data: pnlValues,
+        lineStyle: { width: 2 },
+        itemStyle: { color: '#e74c3c' }, symbol: 'none',
+        areaStyle: {
+          color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+            { offset: 0, color: 'rgba(231,76,60,0.15)' },
+            { offset: 1, color: 'rgba(46,204,113,0.15)' },
+          ]),
+        },
+        visualMap: false,
+        pieces: [
+          { min: 0, color: '#e74c3c' },
+          { max: 0, color: '#2ecc71' },
+        ],
+        markLine: {
+          silent: true,
+          symbol: 'none',
+          lineStyle: { type: 'dashed', width: 1 },
+          label: { fontSize: 10, fontFamily: 'Consolas,monospace', formatter: (p) => p.name + ' ' + fmt(p.value) },
+          data: [
+            { name: '最高', yAxis: pnlMax, lineStyle: { color: '#e74c3c' }, label: { color: '#e74c3c' } },
+            { name: '最低', yAxis: pnlMin, lineStyle: { color: '#2ecc71' }, label: { color: '#2ecc71' } },
+          ],
+        },
+      });
+
+      // 个股独立盈亏曲线（仅持仓 < 4 时展示）
+      if (showIndividual) {
+        individualPnl.forEach(({ item, values, maxVal, minVal, color }) => {
+          const seriesName = item.name;
+          legendData.push(seriesName);
+          seriesList.push({
+            name: seriesName,
+            type: 'line',
+            data: values,
+            lineStyle: { color, width: 1.5, type: 'dashed' },
+            itemStyle: { color },
+            symbol: 'none',
+            markLine: {
+              silent: true,
+              symbol: 'none',
+              lineStyle: { type: 'dashed', width: 1 },
+              label: { fontSize: 9, fontFamily: 'Consolas,monospace', formatter: (p) => p.name + ' ' + fmt(p.value) },
+              data: [
+                { name: '高', yAxis: maxVal, lineStyle: { color }, label: { color } },
+                { name: '低', yAxis: minVal, lineStyle: { color, opacity: 0.6 }, label: { color, opacity: 0.7 } },
+              ],
+            },
+          });
+        });
+      }
+
+      // 用 ECharts 渲染
+      chartEl.innerHTML = ''; // 清除加载提示
+      this._pnlChart = echarts.init(chartEl);
+
+      this._pnlChart.setOption({
+        backgroundColor: '#fff',
+        tooltip: {
+          trigger: 'axis',
+          formatter: function(params) {
+            const date = params[0].axisValue;
+            const pnl = params.find(p => p.seriesName === '盈亏金额');
+            const mv = params.find(p => p.seriesName === '总市值');
+            let s = `<b>${date}</b><br>`;
+            if (mv) s += `总市值: ${fmtAmount(mv.value)}<br>`;
+            if (pnl) s += `盈亏: <span style="color:${pnl.value >= 0 ? '#e74c3c' : '#2ecc71'}">${signStr(pnl.value)}</span><br>`;
+            const pctIdx = params[0].dataIndex;
+            s += `盈亏比例: <span style="color:${pnlPctValues[pctIdx] >= 0 ? '#e74c3c' : '#2ecc71'}">${signStr(pnlPctValues[pctIdx])}%</span>`;
+            // 个股盈亏
+            const indivParams = params.filter(p => {
+              const it = items.find(x => x.name === p.seriesName);
+              return !!it;
+            });
+            if (indivParams.length > 0) {
+              s += '<br>──<br>';
+              indivParams.forEach(p => {
+                const clr = p.value >= 0 ? '#e74c3c' : '#2ecc71';
+                s += `<span style="color:${p.color}">${p.seriesName}</span>: <span style="color:${clr}">${signStr(p.value)}</span><br>`;
+              });
+            }
+            return s;
+          }
+        },
+        legend: { data: legendData, top: 0, textStyle: { fontSize: 11 } },
+        grid: { left: 60, right: 30, top: 40, bottom: 30 },
+        xAxis: { type: 'category', data: dates, axisLabel: { fontSize: 10 } },
+        yAxis: [
+          { type: 'value', name: '金额', axisLabel: { fontSize: 10, formatter: v => v >= 1e8 ? (v/1e8).toFixed(1)+'亿' : v >= 1e4 ? (v/1e4).toFixed(0)+'万' : v } },
+        ],
+        series: seriesList,
+        dataZoom: [{ type: 'inside' }],
+      }, true);
+
+    } catch (err) {
+      chartEl.innerHTML = `<div style="text-align:center;padding:60px;color:#e74c3c">加载失败: ${err.message}</div>`;
+    }
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/*  BOOT                                                                */
+/* ------------------------------------------------------------------ */
+document.addEventListener('DOMContentLoaded', () => { window._app = new App(); });
+</script>
+</body>
+</html>

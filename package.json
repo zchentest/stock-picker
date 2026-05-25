@@ -1,0 +1,16 @@
+{
+  "name": "stock-picker",
+  "version": "1.0.0",
+  "description": "自用选股器 — 实时A股/港股/ETF行情看板",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.18.0",
+    "iconv-lite": "^0.7.2",
+    "node-fetch": "^2.7.0"
+  }
+}
