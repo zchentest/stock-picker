@@ -164,6 +164,22 @@ K线接口路径为 `CN_MarketData.getKLineData`（不是 `CN_MarketDataService`
 npm install && npm start
 ```
 
+### 云平台部署（帽子云 / Railway / Render 等）
+
+本项目自带 Express 服务器（同时托管静态文件 + API 代理），可以直接部署到支持 Node.js 的云平台：
+
+1. **`API_BASE` 已改为相对路径**（`''`），前端请求自动走同域名，无需修改
+2. **端口**：`server.js` 读取 `process.env.PORT`，云平台会自动注入，无需手动设置
+3. **构建命令**：`npm install`
+4. **启动命令**：`npm start`
+5. **健康检查**：访问 `/` 返回前端页面即可
+
+以帽子云为例：
+- 选择 Node.js 运行时
+- 构建命令填 `npm install`
+- 启动命令填 `npm start`
+- 无需额外配置反向代理，帽子云会自动将外部流量转发到 `process.env.PORT`
+
 ### 静态网站托管（Vercel / Netlify / Cloudflare Pages）
 
 前端可以单独部署到静态托管平台，但需要注意：

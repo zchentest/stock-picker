@@ -7,7 +7,7 @@ const path    = require('path');
 const iconv   = require('iconv-lite');
 
 const app  = express();
-const PORT = 3001;
+const PORT = process.env.PORT || 3001;
 
 // ── 公共请求头，绕过新浪防盗链 ──────────────────────────────────────────────
 const SINA_HEADERS = {
