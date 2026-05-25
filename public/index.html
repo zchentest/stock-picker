@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>自用选股器</title>
+  <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+<div class="app">
+  <!-- ============ NAVBAR ============ -->
+  <nav class="navbar">
+    <a href="#" class="logo">
+      <div class="logo-icon">选</div>
+      <span class="logo-text">自用选股器</span>
+    </a>
+    <div class="search-box">
+      <input class="search-input" id="searchInput" type="text"
+             placeholder="搜索股票名称/代码" autocomplete="off" />
+      <span class="search-icon">🔍</span>
+      <div class="search-dropdown" id="searchDropdown"></div>
+    </div>
+    <div class="navbar-indices" id="navbarIndices"></div>
+    <div class="api-badge loading" id="apiBadge">● 连接中</div>
+    <div class="time-display" id="timeDisplay">--:--:--</div>
+  </nav>
+
+  <!-- ============ MAIN ============ -->
+  <div class="main-body">
+    <!-- ---- LEFT SIDEBAR ---- -->
+    <aside class="sidebar-left">
+      <div class="sidebar-tabs">
+        <div class="sidebar-tab active" data-tab="watchlist">自选股</div>
+        <div class="sidebar-tab" data-tab="portfolio">持仓</div>
+      </div>
+
+      <!-- Watchlist Panel -->
+      <div class="sidebar-panel active" id="panelWatchlist">
+        <div class="watchlist" id="watchlist"></div>
+      </div>
+
+      <!-- Portfolio Panel -->
+      <div class="sidebar-panel" id="panelPortfolio">
+        <div class="portfolio-toolbar">
+          <div class="pf-toggle">
+            <span>盈亏比例</span>
+            <div class="pf-toggle-switch" id="pctToggle"></div>
+          </div>
+        </div>
+        <div class="portfolio-list" id="portfolioList"></div>
+        <div class="portfolio-summary" id="portfolioSummary"></div>
+        <button class="pf-curve-btn" id="pfCurveBtn">📈 盈亏曲线</button>
+      </div>
+    </aside>
+
+    <!-- 盈亏曲线弹窗 -->
+    <div class="modal-overlay" id="pnlCurveModal" style="display:none">
+      <div class="modal-box" style="max-width:800px;width:90vw">
+        <div class="modal-header">
+          <span>持仓盈亏曲线</span>
+          <span class="modal-close" id="pnlCurveClose">×</span>
+        </div>
+        <div class="modal-body">
+          <div class="pnl-curve-controls">
+            <div class="pnl-quick-btns">
+              <button class="pnl-quick-btn" data-months="1">近1月</button>
+              <button class="pnl-quick-btn active" data-months="3">近3月</button>
+              <button class="pnl-quick-btn" data-months="6">近6月</button>
+              <button class="pnl-quick-btn" data-months="12">近1年</button>
+            </div>
+            <span class="pnl-date-sep">|</span>
+            <input type="date" id="pnlStartDate" class="pnl-date-input">
+            <button id="pnlCurveGo" class="pnl-query-btn">查询</button>
+          </div>
+          <div id="pnlCurveChart" style="width:100%;height:380px"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ---- CENTER ---- -->
+    <div class="center-area">
+      <div class="stock-header" id="stockHeader"></div>
+      <div class="chart-toolbar">
+        <button class="period-btn active" data-period="minute">分时</button>
+        <button class="period-btn" data-period="daily">日K</button>
+        <button class="period-btn" data-period="weekly">周K</button>
+        <button class="period-btn" data-period="monthly">月K</button>
+        <div class="ma-toggles">
+          <button class="ma-btn" data-ma="5">MA5</button>
+          <button class="ma-btn" data-ma="10">MA10</button>
+          <button class="ma-btn" data-ma="20">MA20</button>
+          <button class="ma-btn" data-ma="60">MA60</button>
+        </div>
+      </div>
+      <div class="chart-wrap">
+        <div id="klineChart"></div>
+        <div class="chart-loading" id="chartLoading">⏳ 加载中...</div>
+      </div>
+    </div>
+
+    <!-- ---- RIGHT SIDEBAR ---- -->
+    <aside class="sidebar-right">
+      <div class="rank-tabs">
+        <div class="rank-tab active" data-rank="rise">涨幅榜</div>
+        <div class="rank-tab" data-rank="fall">跌幅榜</div>
+        <div class="rank-tab" data-rank="turn">换手率</div>
+      </div>
+      <div class="rank-header"><span>名称/代码</span><span id="rankColLabel">涨跌幅</span></div>
+      <div class="rank-list" id="rankList"></div>
+      <div class="sector-panel">
+        <div class="section-title">板块行情（模拟）</div>
+        <div class="sector-grid" id="sectorGrid"></div>
+      </div>
+    </aside>
+  </div>
+
+  <!-- ============ BOTTOM INDEX STRIP ============ -->
+  <div class="index-strip" id="indexStrip"></div>
+</div>
+
+<!-- Toast container -->
+<div id="toaster"></div>
+
+<!-- Modal container -->
+<div id="modalContainer"></div>
+
+<script src="js/utils.js"></script>
+<script src="js/sim-service.js"></script>
+<script src="js/api-service.js"></script>
+<script src="js/portfolio.js"></script>
+<script src="js/chart-service.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
