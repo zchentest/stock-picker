@@ -119,7 +119,18 @@ app.get('/api/quote', async (req, res) => {
         time      = f[31] || '';
       }
 
-      if (!Number(price)) continue; // 停牌或无效
+      // 非交易时间新浪可能返回空数据（price 为空或 0）
+      // 此时用昨收价填充 price，确保前端至少能显示名称和昨收价
+      if (!Number(price)) {
+        if (Number(prevClose)) {
+          price = prevClose;
+          open = open || prevClose;
+          high = high || prevClose;
+          low = low || prevClose;
+        } else {
+          continue; // 连昨收都没有，彻底无效
+        }
+      }
 
       const pPrice     = Number(price);
       const pPrevClose = Number(prevClose);

@@ -73,6 +73,7 @@ class App {
     this._quoteCache = new Map();
     this._indexCache = new Map();
     this._indexMiniTicks = new Map();
+    this._nameCache = new Map();  // code → name 缓存，API 不可用时降级使用
     INDEX_CODES.forEach(idx => this._indexMiniTicks.set(idx.code, []));
 
     this._sim = new window.SimDataService();
@@ -96,11 +97,31 @@ class App {
 
   _loadWatchlist() {
     try { const raw = localStorage.getItem('watchlist');
-      if (raw) { const arr = JSON.parse(raw); if (Array.isArray(arr) && arr.length > 0) return arr; }
+      if (raw) { const arr = JSON.parse(raw);
+        if (Array.isArray(arr) && arr.length > 0) {
+          // 支持两种格式：纯代码数组 ['sh600519'] 或对象数组 [{code:'sh600519',name:'贵州茅台'}]
+          return arr.map(item => {
+            if (typeof item === 'string') return item;
+            if (item && item.code) {
+              // 缓存名称供降级使用
+              if (item.name) this._nameCache.set(item.code, item.name);
+              return item.code;
+            }
+            return null;
+          }).filter(Boolean);
+        }
+      }
     } catch(_){}
     return [...DEFAULT_WATCHLIST];
   }
-  _saveWatchlist() { localStorage.setItem('watchlist', JSON.stringify(this._watchCodes)); }
+  _saveWatchlist() {
+    const data = this._watchCodes.map(code => {
+      const q = this._quoteCache.get(code);
+      const name = (q && q.name && q.name !== code) ? q.name : (this._nameCache.get(code) || '');
+      return name ? { code, name } : code;
+    });
+    localStorage.setItem('watchlist', JSON.stringify(data));
+  }
 
   async _bootRender() {
     this._renderWatchlist();
@@ -129,6 +150,7 @@ class App {
       this._setApiStatus('ok');
       quotes.forEach(q => {
         this._quoteCache.set(q.code, q);
+        if (q.name && q.name !== q.code) this._nameCache.set(q.code, q.name);
         this._sim.ensureStock(q.code, q.name, q.price);
         const simSt = this._sim.getStock(q.code);
         if (simSt) {
@@ -138,15 +160,25 @@ class App {
         }
       });
       this._watchCodes.forEach(code => {
-        if (!this._quoteCache.has(code)) this._sim.ensureStock(code, code, undefined);
+        if (!this._quoteCache.has(code)) {
+          const fallbackName = this._nameCache.get(code) || code;
+          this._sim.ensureStock(code, fallbackName, undefined);
+        }
       });
     } else {
       this._setApiStatus('error');
+      // API 请求失败时，用已有缓存数据（不覆盖名称和价格），只对没有缓存的使用降级数据
       this._sim.tick();
       this._watchCodes.forEach(code => {
-        this._sim.ensureStock(code, code, undefined);
-        const simSt = this._sim.getStock(code);
-        if (simSt) this._quoteCache.set(code, this._simToQuote(simSt));
+        if (this._quoteCache.has(code)) {
+          // 已有缓存，保留真实名称和价格
+        } else {
+          // 没有缓存，用缓存的名称降级显示，不用代码当名称
+          const fallbackName = this._nameCache.get(code) || code;
+          this._sim.ensureStock(code, fallbackName, undefined);
+          const simSt = this._sim.getStock(code);
+          if (simSt) this._quoteCache.set(code, this._simToQuote(simSt));
+        }
       });
     }
     this._renderWatchlist();
@@ -206,7 +238,7 @@ class App {
   }
 
   _startRefresh() {
-    setInterval(() => this._refreshAll(), 3000);
+    setInterval(() => this._refreshAll(), 60000);
     setInterval(() => this._updateClock(), 1000);
     this._updateClock();
   }
@@ -242,9 +274,10 @@ class App {
     }
     el.innerHTML = this._watchCodes.map(code => {
       const q = this._quoteCache.get(code);
+      const displayName = q ? q.name : (this._nameCache.get(code) || code.slice(2));
       if (!q) return `
         <div class="watchlist-item ${code===this._activeCode?'active':''}" data-code="${code}">
-          <div class="wl-row1"><span class="wl-name">${code}</span><span class="wl-price flat">--</span></div>
+          <div class="wl-row1"><span class="wl-name">${displayName}</span><span class="wl-price flat">--</span></div>
           <div class="wl-row2"><span class="wl-code">${code.slice(2)}</span><span class="wl-pct flat">加载中</span></div>
           <span class="wl-del" title="移除自选">×</span>
         </div>`;
@@ -265,6 +298,24 @@ class App {
         if (e.target.classList.contains('wl-del')) return;
         this._activeCode = item.dataset.code;
         this._renderWatchlist(); this._renderStockHeader(this._activeCode);
+        // 点击自选股时立即刷新该股票行情
+        this._api.fetchQuotes([this._activeCode]).then(quotes => {
+          if (quotes.length > 0) {
+            quotes.forEach(q => {
+              this._quoteCache.set(q.code, q);
+              this._sim.ensureStock(q.code, q.name, q.price);
+              const simSt = this._sim.getStock(q.code);
+              if (simSt) {
+                simSt.price = q.price; simSt.open = q.open; simSt.prevClose = q.prevClose;
+                simSt.high = q.high; simSt.low = q.low; simSt.name = q.name;
+                simSt.volume = q.volume; simSt.amount = q.amount;
+              }
+            });
+            this._renderWatchlist();
+            this._renderStockHeader(this._activeCode);
+            this._renderPortfolio();
+          }
+        });
         this._api.clearKlineCache(this._activeCode);
         this._loadAndRenderKline(this._activeCode, this._activePeriod);
       });

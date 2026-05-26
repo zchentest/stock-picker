@@ -52,7 +52,10 @@ class PortfolioManager {
     let totalMarketValue = 0, totalCost = 0;
     const details = this._items.map(item => {
       const q = quoteCache.get(item.code);
-      const price = q ? q.price : 0;
+      // 优先用实时行情价格，其次用昨收价，最后用成本价（API不可用时至少不显示离谱的负数）
+      let price = q ? Number(q.price) : 0;
+      if (!price && q && Number(q.prevClose)) price = Number(q.prevClose);
+      if (!price) price = item.costPrice;  // 最后降级用成本价
       const marketValue = price * item.quantity;
       const costValue = item.costPrice * item.quantity;
       const pnl = marketValue - costValue;
