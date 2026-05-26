@@ -11,7 +11,18 @@ class PortfolioManager {
   }
 
   _load() {
-    try { const raw = localStorage.getItem('portfolio'); if (raw) return JSON.parse(raw); } catch(_){}
+    try {
+      const raw = localStorage.getItem('portfolio'); if (raw) {
+        const arr = JSON.parse(raw);
+        if (Array.isArray(arr)) {
+          // 兼容旧数据：没有 id 字段的自动补上
+          arr.forEach(item => {
+            if (!item.id) item.id = 'h_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
+          });
+          return arr;
+        }
+      }
+    } catch(_){}
     return [];
   }
 
@@ -59,34 +70,54 @@ class PortfolioManager {
   }
 
   /* ---- 持仓管理 ---- */
+  /**
+   * 添加持仓。同一只股票可以在不同分组中重复添加。
+   * @returns {string} 新持仓的 ID
+   */
   add(code, name, costPrice, quantity, group) {
-    const existing = this._items.find(i => i.code === code);
-    if (existing) {
-      existing.name = name || existing.name;
-      existing.costPrice = costPrice;
-      existing.quantity = quantity;
-      if (group) existing.group = group;
-    } else {
-      this._items.push({ code, name, costPrice, quantity, group: group || 'default' });
-    }
+    const id = 'h_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
+    this._items.push({ id, code, name, costPrice, quantity, group: group || 'default' });
     this._save();
+    return id;
   }
 
-  update(code, costPrice, quantity) {
-    const item = this._items.find(i => i.code === code);
+  /**
+   * 更新指定 ID 的持仓
+   */
+  updateById(id, costPrice, quantity) {
+    const item = this._items.find(i => i.id === id);
     if (item) { item.costPrice = costPrice; item.quantity = quantity; this._save(); }
   }
 
-  updateGroupOf(code, groupId) {
-    const item = this._items.find(i => i.code === code);
+  /**
+   * 更新指定持仓的分组
+   */
+  updateGroupOf(id, groupId) {
+    const item = this._items.find(i => i.id === id);
     if (item) { item.group = groupId; this._save(); }
   }
 
-  remove(code) {
-    this._items = this._items.filter(i => i.code !== code); this._save();
+  /**
+   * 删除指定 ID 的持仓
+   */
+  removeById(id) {
+    this._items = this._items.filter(i => i.id !== id); this._save();
   }
 
-  getByCode(code) { return this._items.find(i => i.code === code); }
+  /**
+   * 按 ID 获取持仓
+   */
+  getById(id) { return this._items.find(i => i.id === id); }
+
+  /**
+   * 按 code 获取所有持仓（可能多条，因为在不同分组）
+   */
+  getAllByCode(code) { return this._items.filter(i => i.code === code); }
+
+  /**
+   * 检查某只股票是否已在指定分组中持仓
+   */
+  isInGroup(code, groupId) { return this._items.some(i => i.code === code && (i.group || 'default') === groupId); }
 
   /**
    * 获取指定分组的持仓

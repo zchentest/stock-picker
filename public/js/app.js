@@ -384,7 +384,7 @@ class App {
         const itemPnlCls = window.colorClass(itemPnl);
         const pctStr = this._portfolio.showPct ? ` <span class="pf-pnl-pct ${itemPnlCls}">(${window.signStr(itemPnlPct)}%)</span>` : '';
         html += `
-          <div class="portfolio-item" data-code="${d.code}">
+          <div class="portfolio-item" data-id="${d.id}" data-code="${d.code}">
             <div class="pf-row1">
               <span><span class="pf-name">${d.name}</span><span class="pf-qty">${d.quantity}股</span></span>
               <span class="pf-cost">成本 ${window.fmt(d.costPrice)}</span>
@@ -403,12 +403,12 @@ class App {
     list.querySelectorAll('.portfolio-item').forEach(item => {
       item.addEventListener('click', (e) => {
         if (e.target.classList.contains('pf-del')) return;
-        this._editPortfolioItem(item.dataset.code);
+        this._editPortfolioItem(item.dataset.id);
       });
       const delBtn = item.querySelector('.pf-del');
       if (delBtn) delBtn.addEventListener('click', (e) => {
         e.stopPropagation();
-        this._portfolio.remove(item.dataset.code);
+        this._portfolio.removeById(item.dataset.id);
         this._toast('已删除持仓');
         this._renderPortfolio();
       });
@@ -466,7 +466,10 @@ class App {
     if (!this._watchCodes.includes(code)) this.addToWatchlist(code, name);
 
     const groups = this._portfolio.getGroups();
-    const groupOptions = groups.map(g => ({ value: g.id, label: g.name }));
+    const groupOptions = groups.map(g => {
+      const alreadyIn = this._portfolio.isInGroup(code, g.id);
+      return { value: g.id, label: g.name + (alreadyIn ? ' (已有)' : '') };
+    });
     groupOptions.push({ value: '_new', label: '+ 新建分组' });
 
     const result = await showModal(`添加持仓 — ${name}`, [
@@ -492,13 +495,29 @@ class App {
       else groupId = this._portfolio.addGroup(newGroupName);
     }
 
+    // 如果该股票已在此分组中，提示确认覆盖还是新增
+    if (this._portfolio.isInGroup(code, groupId)) {
+      const existingInGroup = this._portfolio.getAllByCode(code).find(i => (i.group || 'default') === groupId);
+      if (existingInGroup) {
+        const overwrite = confirm(`${name} 已在「${groups.find(g => g.id === groupId)?.name || '默认分组'}」中（成本${existingInGroup.costPrice}，数量${existingInGroup.quantity}），是否覆盖？\n\n确定=覆盖原数据  取消=新增一条独立持仓`);
+        if (overwrite) {
+          // 覆盖原有
+          this._portfolio.updateById(existingInGroup.id, costPrice, quantity);
+          this._toast(`✓ 已更新 ${name} 持仓`);
+          this._renderPortfolio();
+          return;
+        }
+        // 继续往下新增
+      }
+    }
+
     this._portfolio.add(code, name, costPrice, quantity, groupId);
     this._toast(`✓ 已添加 ${name} 持仓`);
     this._renderPortfolio();
   }
 
-  async _editPortfolioItem(code) {
-    const item = this._portfolio.getByCode(code);
+  async _editPortfolioItem(id) {
+    const item = this._portfolio.getById(id);
     if (!item) return;
 
     const groups = this._portfolio.getGroups();
@@ -516,7 +535,7 @@ class App {
     ]);
     if (!result) return;
     if (result.action === 'delete') {
-      this._portfolio.remove(code); this._toast('已删除持仓'); this._renderPortfolio(); return;
+      this._portfolio.removeById(id); this._toast('已删除持仓'); this._renderPortfolio(); return;
     }
     if (result.action === 'confirm') {
       const costPrice = parseFloat(result.values.costPrice);
@@ -532,8 +551,8 @@ class App {
         else groupId = this._portfolio.addGroup(newGroupName);
       }
 
-      this._portfolio.update(code, costPrice, quantity);
-      this._portfolio.updateGroupOf(code, groupId);
+      this._portfolio.updateById(id, costPrice, quantity);
+      this._portfolio.updateGroupOf(id, groupId);
       this._toast('持仓已更新'); this._renderPortfolio();
     }
   }
@@ -824,7 +843,12 @@ class App {
 
     searchDropdown.innerHTML = results.map(r => {
       const inList = this._watchCodes.includes(r.code);
-      const inPortfolio = !!this._portfolio.getByCode(r.code);
+      const holdings = this._portfolio.getAllByCode(r.code);
+      const inPortfolio = holdings.length > 0;
+      const groupNames = inPortfolio ? holdings.map(h => {
+        const g = this._portfolio.getGroupById(h.group || 'default');
+        return g ? g.name : '默认';
+      }).join('、') : '';
       return `
         <div class="search-result-item" data-code="${r.code}" data-name="${r.name}">
           <div class="search-result-left">
@@ -834,9 +858,8 @@ class App {
           <div style="display:flex;gap:4px">
             <button class="search-add-btn${inList?' added':''}" data-code="${r.code}" data-name="${r.name}">
               ${inList?'已添加':'+ 自选'}</button>
-            <button class="search-portfolio-btn${inPortfolio?' added':''}" data-code="${r.code}" data-name="${r.name}"
-                    ${inPortfolio?'style="border-color:var(--border);color:var(--text-muted);cursor:default"':''}>
-              ${inPortfolio?'已持仓':'+ 持仓'}</button>
+            <button class="search-portfolio-btn" data-code="${r.code}" data-name="${r.name}">
+              ${inPortfolio ? groupNames + ' · +更多' : '+ 持仓'}</button>
           </div>
         </div>`;
     }).join('');
@@ -867,9 +890,8 @@ class App {
       });
     });
 
-    // + 持仓 button
+    // + 持仓 button（始终可点击，支持重复添加到不同分组）
     searchDropdown.querySelectorAll('.search-portfolio-btn').forEach(btn => {
-      if (btn.classList.contains('added')) return;
       btn.addEventListener('click', async (e) => {
         e.stopPropagation();
         searchDropdown.classList.remove('show');
