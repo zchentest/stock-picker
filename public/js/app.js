@@ -1,7 +1,7 @@
 'use strict';
 
 /* =====================================================================
- *  自用选股器 v5.0 — 雪球风格 + K线标注 + 虚拟持仓 + 分组对比
+ *  自用选股-盈亏查看工具 v6.0 — 雪球风格 + K线标注 + 虚拟持仓 + 分组对比 + 港股指数
  * ===================================================================== */
 
 /* ------------------------------------------------------------------ */
@@ -9,9 +9,10 @@
 /* ------------------------------------------------------------------ */
 const INDEX_CODES = [
   { code: 'sh000001', name: '上证指数', base: 3128.5 },
-  { code: 'sz399001', name: '深证成指', base: 9987.2 },
-  { code: 'sz399006', name: '创业板指', base: 1965.4 },
-  { code: 'sh000688', name: '科创50',   base: 1002.8 },
+  { code: 'hkHSI',   name: '恒生指数', base: 20000 },
+  { code: 'hkHSTECH',name: '恒生科技', base: 4500 },
+  { code: 'sh513050',name: '中概互联网', base: 1.0 },
+  { code: 'sz159262',name: '港股通科技', base: 0.8 },
 ];
 window.INDEX_CODES = INDEX_CODES;
 
@@ -146,6 +147,7 @@ class App {
     this._renderRankList();
     this._renderSectors();
     this._renderPortfolio();
+    this._renderNews();
     await this._refreshAll();
   }
 
@@ -611,6 +613,47 @@ class App {
     }).join('');
   }
 
+  /* ---- Render: Index News ---- */
+  async _renderNews() {
+    const el = document.getElementById('newsList');
+    if (!el) return;
+    el.innerHTML = '<div class="news-loading">加载中…</div>';
+
+    // 从各指数关键词获取最新新闻
+    const keywords = ['恒生指数', '恒生科技指数', '中概互联网ETF', '港股通科技ETF'];
+    const allNews = [];
+    const seenTitles = new Set();
+
+    const results = await Promise.all(
+      keywords.map(kw => this._api.fetchNews(kw).catch(() => []))
+    );
+
+    results.forEach(items => {
+      items.forEach(item => {
+        if (!item.title || seenTitles.has(item.title)) return;
+        seenTitles.add(item.title);
+        allNews.push(item);
+      });
+    });
+
+    if (allNews.length === 0) {
+      el.innerHTML = '<div class="news-empty">暂无相关公告</div>';
+      return;
+    }
+
+    // 最多显示 10 条
+    const display = allNews.slice(0, 10);
+    el.innerHTML = display.map(n => {
+      const title = n.title.length > 30 ? n.title.slice(0, 30) + '…' : n.title;
+      const dateStr = n.date ? `<span class="news-date">${n.date}</span>` : '';
+      const sourceStr = n.source ? `<span class="news-source">${n.source}</span>` : '';
+      return `<a class="news-item" href="${n.link}" target="_blank" rel="noopener noreferrer">
+        <span class="news-title">${title}</span>
+        <span class="news-meta">${sourceStr}${dateStr}</span>
+      </a>`;
+    }).join('');
+  }
+
   /* ---- Render: Index Strip & Navbar ---- */
   _renderNavbarIndices(cacheMap) {
     document.getElementById('navbarIndices').innerHTML = INDEX_CODES.map(idx => {
@@ -786,7 +829,7 @@ class App {
         <div class="search-result-item" data-code="${r.code}" data-name="${r.name}">
           <div class="search-result-left">
             <span class="search-result-name">${r.name}</span>
-            <span class="search-result-code">${r.code.slice(2)} · ${r.code.startsWith('sh')?'沪':'深'}</span>
+            <span class="search-result-code">${r.code.slice(2)} · ${r.code.startsWith('sh')?'沪':r.code.startsWith('hk')?'港':'深'}</span>
           </div>
           <div style="display:flex;gap:4px">
             <button class="search-add-btn${inList?' added':''}" data-code="${r.code}" data-name="${r.name}">

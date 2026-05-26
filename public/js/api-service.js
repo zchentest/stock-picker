@@ -59,6 +59,17 @@ class ApiDataService {
   clearKlineCache(code) {
     for (const key of this._klineCache.keys()) { if (key.startsWith(code + '-')) this._klineCache.delete(key); }
   }
+
+  async fetchNews(keyword) {
+    if (!keyword) return [];
+    try {
+      const ctrl = new AbortController(); const timer = setTimeout(() => ctrl.abort(), 6000);
+      const res = await fetch(`${API_BASE}/api/news?keyword=${encodeURIComponent(keyword)}`, { signal: ctrl.signal });
+      clearTimeout(timer);
+      const json = await res.json();
+      return Array.isArray(json) ? json : [];
+    } catch (e) { console.warn('[fetchNews]', e.message); return []; }
+  }
 }
 
 window.ApiDataService = ApiDataService;

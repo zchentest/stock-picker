@@ -88,22 +88,34 @@ app.get('/api/quote', async (req, res) => {
 
       // 判断是否港股（代码以 hk 开头）
       const isHK = code.startsWith('hk');
+      // 判断是否港股指数（如 hkHSI, hkHSTECH, hkHSCEI 等）
+      const isHKIndex = isHK && isNaN(code.slice(2));
 
       let name, open, prevClose, price, high, low, volume, amount, date, time;
 
       if (isHK) {
-        // 港股字段布局
+        // 港股字段布局（个股和指数不同）
+        // 港股指数（hkHSI等）：f[0]英文简称, f[1]中文名, f[2]昨收, f[3]今开, f[4]最高, f[5]最低, f[6]当前价, f[7]涨跌额, f[8]涨跌幅
+        // 港股个股（hk00700等）：f[0]英文简称, f[1]中文名, f[2]今开, f[3]昨收, f[4]最高, f[5]最低, f[6]当前价, f[7]涨跌额, f[8]涨跌幅
         if (f.length < 19) continue;
-        name      = f[0];
-        open      = f[1];
-        prevClose = f[2];
-        high      = f[3];
-        low       = f[4];
-        price     = f[5];
-        volume    = parseInt(f[10], 10) || 0;
-        amount    = parseFloat(f[11]) || 0;
+        name      = f[1]; // 中文名称
+        price     = f[6]; // 当前价
+        high      = f[4]; // 最高
+        low       = f[5]; // 最低
+        volume    = parseInt(f[11], 10) || 0;
+        amount    = parseFloat(f[12]) || 0;
         date      = f[17] || '';
         time      = f[18] || '';
+
+        if (isHKIndex) {
+          // 港股指数：f[2]=昨收, f[3]=今开
+          prevClose = f[2];
+          open      = f[3];
+        } else {
+          // 港股个股：f[2]=今开, f[3]=昨收
+          open      = f[2];
+          prevClose = f[3];
+        }
       } else {
         // A股 / 指数 / ETF 字段布局
         if (f.length < 32) continue;
@@ -301,11 +313,67 @@ app.get('/api/kline', async (req, res) => {
   }
 });
 
+// ── /api/news ───────────────────────────────────────────────────────────────
+/**
+ * GET /api/news?keyword=恒生指数
+ * 代理东方财富新闻搜索，返回最新相关新闻/公告列表。
+ * 使用东方财富搜索 API 获取实时财经资讯。
+ */
+app.get('/api/news', async (req, res) => {
+  const { keyword } = req.query;
+  if (!keyword) return res.json([]);
+
+  try {
+    const param = JSON.stringify({
+      uid: '',
+      keyword,
+      type: ['cmsArticleWebOld'],
+      client: 'web',
+      clientName: 'web',
+      pageSize: 8,
+      pageIndex: 1,
+    });
+
+    const url = `https://search-api-web.eastmoney.com/search/jsonp?cb=jQuery&param=${encodeURIComponent(param)}`;
+
+    const { buf } = await fetchBuffer(url, {
+      headers: {
+        'User-Agent': SINA_HEADERS['User-Agent'],
+        Referer: 'https://so.eastmoney.com/',
+      },
+    }, 8000);
+    const text = iconv.decode(buf, 'utf-8');
+
+    // 解析 JSONP：jQuery({...})
+    const start = text.indexOf('(');
+    const end = text.lastIndexOf(')');
+    if (start < 0 || end <= start) return res.json([]);
+
+    const jsonStr = text.slice(start + 1, end);
+    const json = JSON.parse(jsonStr);
+    const articles = json?.result?.cmsArticleWebOld || [];
+
+    const results = articles.map(a => ({
+      title: (a.title || '').replace(/<[^>]+>/g, '').trim(),
+      content: (a.content || '').replace(/<[^>]+>/g, '').trim().slice(0, 100),
+      link: a.url || '',
+      date: a.date || '',
+      source: a.mediaName || '',
+    })).filter(a => a.title);
+
+    return res.json(results);
+  } catch (err) {
+    console.error('[/api/news]', err.message);
+    return res.json([]);
+  }
+});
+
 // ── 启动服务 ─────────────────────────────────────────────────────────────────
 app.listen(PORT, () => {
-  console.log(`\n🚀 Stock Dashboard Server listening on port ${PORT}`);
+  console.log(`\n🚀 自用选股-盈亏查看工具 Server listening on port ${PORT}`);
   console.log(`   前端页面: http://localhost:${PORT}`);
   console.log(`   行情 API: http://localhost:${PORT}/api/quote?codes=sh600519`);
   console.log(`   搜索 API: http://localhost:${PORT}/api/search?keyword=茅台`);
-  console.log(`   K线 API:  http://localhost:${PORT}/api/kline?code=sh600519&type=daily\n`);
+  console.log(`   K线 API:  http://localhost:${PORT}/api/kline?code=sh600519&type=daily`);
+  console.log(`   新闻 API: http://localhost:${PORT}/api/news?keyword=恒生指数\n`);
 });
