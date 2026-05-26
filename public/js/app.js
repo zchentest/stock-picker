@@ -1,7 +1,7 @@
 'use strict';
 
 /* =====================================================================
- *  自用选股器 v4.0 — 雪球风格 + K线标注 + 虚拟持仓
+ *  自用选股器 v5.0 — 雪球风格 + K线标注 + 虚拟持仓 + 分组对比
  * ===================================================================== */
 
 /* ------------------------------------------------------------------ */
@@ -24,12 +24,23 @@ window.DEFAULT_WATCHLIST = DEFAULT_WATCHLIST;
 function showModal(title, fields, actions) {
   return new Promise((resolve) => {
     const container = document.getElementById('modalContainer');
-    const fieldHtml = fields.map(f => `
+    const fieldHtml = fields.map(f => {
+      if (f.type === 'select') {
+        const opts = (f.options || []).map(o =>
+          `<option value="${o.value}"${o.value === f.value ? ' selected' : ''}>${o.label}</option>`
+        ).join('');
+        return `<div class="modal-field">
+          <label>${f.label}</label>
+          <select id="modal-${f.key}" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:var(--radius);font-size:14px;font-family:var(--font-mono);outline:none">${opts}</select>
+        </div>`;
+      }
+      return `
       <div class="modal-field">
         <label>${f.label}</label>
         <input type="${f.type||'text'}" id="modal-${f.key}" value="${f.value ?? ''}"
                placeholder="${f.placeholder||''}" step="${f.step||'any'}" />
-      </div>`).join('');
+      </div>`;
+    }).join('');
     const actionHtml = actions.map(a => `
       <button class="modal-btn${a.primary?' modal-btn-primary':''}${a.danger?' modal-btn-danger':''}"
               data-action="${a.key}">${a.label}</button>`).join('');
@@ -51,14 +62,17 @@ function showModal(title, fields, actions) {
       btn.addEventListener('click', () => {
         const action = btn.dataset.action;
         const values = {};
-        fields.forEach(f => { values[f.key] = document.getElementById(`modal-${f.key}`).value; });
+        fields.forEach(f => {
+          const el = document.getElementById(`modal-${f.key}`);
+          values[f.key] = el ? el.value : '';
+        });
         container.innerHTML = '';
         resolve({ action, values });
       });
     });
 
     // Focus first input
-    const firstInput = overlay.querySelector('input');
+    const firstInput = overlay.querySelector('input, select');
     if (firstInput) firstInput.focus();
   });
 }
@@ -88,6 +102,9 @@ class App {
     this._activeSidebarTab = 'watchlist';
     this._apiStatus = 'loading';
 
+    // 盈亏曲线分组勾选状态：groupId → boolean
+    this._pnlGroupChecked = {};
+
     INDEX_CODES.forEach(idx => this._sim.ensureIndex(idx.code, idx.name, idx.base));
 
     this._bindEvents();
@@ -99,11 +116,9 @@ class App {
     try { const raw = localStorage.getItem('watchlist');
       if (raw) { const arr = JSON.parse(raw);
         if (Array.isArray(arr) && arr.length > 0) {
-          // 支持两种格式：纯代码数组 ['sh600519'] 或对象数组 [{code:'sh600519',name:'贵州茅台'}]
           return arr.map(item => {
             if (typeof item === 'string') return item;
             if (item && item.code) {
-              // 缓存名称供降级使用
               if (item.name) this._nameCache.set(item.code, item.name);
               return item.code;
             }
@@ -167,13 +182,11 @@ class App {
       });
     } else {
       this._setApiStatus('error');
-      // API 请求失败时，用已有缓存数据（不覆盖名称和价格），只对没有缓存的使用降级数据
       this._sim.tick();
       this._watchCodes.forEach(code => {
         if (this._quoteCache.has(code)) {
           // 已有缓存，保留真实名称和价格
         } else {
-          // 没有缓存，用缓存的名称降级显示，不用代码当名称
           const fallbackName = this._nameCache.get(code) || code;
           this._sim.ensureStock(code, fallbackName, undefined);
           const simSt = this._sim.getStock(code);
@@ -327,78 +340,157 @@ class App {
     if (this._activeCode && !this._chart.code) this._loadAndRenderKline(this._activeCode, this._activePeriod);
   }
 
-  /* ---- Render: Portfolio ---- */
+  /* ---- Render: Portfolio (with groups) ---- */
   _renderPortfolio() {
-    const { details, totalMarketValue, totalCost, totalPnl, totalPnlPct } =
-      this._portfolio.computePnL(this._quoteCache);
+    const allItems = this._portfolio.getAll();
+    const groups = this._portfolio.getGroups();
 
     const toggle = document.getElementById('pctToggle');
     if (toggle) { if (this._portfolio.showPct) toggle.classList.add('on'); else toggle.classList.remove('on'); }
 
     const list = document.getElementById('portfolioList');
-    if (details.length === 0) {
+    if (allItems.length === 0) {
       list.innerHTML = `<div class="portfolio-empty">暂无持仓<br>在搜索结果中添加持仓</div>`;
-    } else {
-      list.innerHTML = details.map(d => {
-        const pnlCls = window.colorClass(d.pnl);
-        const pctStr = this._portfolio.showPct ? ` <span class="pf-pnl-pct ${pnlCls}">(${window.signStr(d.pnlPct)}%)</span>` : '';
-        return `
+      document.getElementById('portfolioSummary').innerHTML = '';
+      return;
+    }
+
+    // 按分组渲染
+    let html = '';
+    groups.forEach(g => {
+      const groupItems = this._portfolio.getByGroup(g.id);
+      if (groupItems.length === 0) return;
+      const pnl = this._portfolio.computePnL(this._quoteCache, g.id);
+      const pnlCls = window.colorClass(pnl.totalPnl);
+
+      html += `<div class="pf-group-header" data-group="${g.id}">
+        <span class="pf-group-dot" style="background:${g.color}"></span>
+        <span class="pf-group-name">${g.name}</span>
+        <span class="pf-group-summary ${pnlCls}">${window.signStr(pnl.totalPnl)} (${window.signStr(pnl.totalPnlPct)}%)</span>
+        <span class="pf-group-edit" title="编辑分组">✎</span>
+      </div>`;
+
+      groupItems.forEach(d => {
+        const q = this._quoteCache.get(d.code);
+        let price = q ? Number(q.price) : 0;
+        if (!price && q && Number(q.prevClose)) price = Number(q.prevClose);
+        if (!price) price = d.costPrice;
+        const marketValue = price * d.quantity;
+        const costValue = d.costPrice * d.quantity;
+        const itemPnl = marketValue - costValue;
+        const itemPnlPct = costValue !== 0 ? ((itemPnl / costValue) * 100) : 0;
+        const itemPnlCls = window.colorClass(itemPnl);
+        const pctStr = this._portfolio.showPct ? ` <span class="pf-pnl-pct ${itemPnlCls}">(${window.signStr(itemPnlPct)}%)</span>` : '';
+        html += `
           <div class="portfolio-item" data-code="${d.code}">
             <div class="pf-row1">
               <span><span class="pf-name">${d.name}</span><span class="pf-qty">${d.quantity}股</span></span>
               <span class="pf-cost">成本 ${window.fmt(d.costPrice)}</span>
             </div>
             <div class="pf-row2">
-              <span class="pf-price ${pnlCls}">${window.fmt(d.price)}</span>
-              <span class="pf-pnl ${pnlCls}">${window.signStr(d.pnl)}${pctStr}</span>
+              <span class="pf-price ${itemPnlCls}">${window.fmt(price)}</span>
+              <span class="pf-pnl ${itemPnlCls}">${window.signStr(itemPnl)}${pctStr}</span>
             </div>
             <span class="pf-del" title="删除持仓">×</span>
           </div>`;
-      }).join('');
-
-      list.querySelectorAll('.portfolio-item').forEach(item => {
-        item.addEventListener('click', (e) => {
-          if (e.target.classList.contains('pf-del')) return;
-          this._editPortfolioItem(item.dataset.code);
-        });
-        const delBtn = item.querySelector('.pf-del');
-        if (delBtn) delBtn.addEventListener('click', (e) => {
-          e.stopPropagation();
-          this._portfolio.remove(item.dataset.code);
-          this._toast('已删除持仓');
-          this._renderPortfolio();
-        });
       });
-    }
+    });
+    list.innerHTML = html;
 
-    // Summary
+    // Bind click events
+    list.querySelectorAll('.portfolio-item').forEach(item => {
+      item.addEventListener('click', (e) => {
+        if (e.target.classList.contains('pf-del')) return;
+        this._editPortfolioItem(item.dataset.code);
+      });
+      const delBtn = item.querySelector('.pf-del');
+      if (delBtn) delBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this._portfolio.remove(item.dataset.code);
+        this._toast('已删除持仓');
+        this._renderPortfolio();
+      });
+    });
+
+    // 分组编辑按钮
+    list.querySelectorAll('.pf-group-edit').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const groupId = btn.closest('.pf-group-header').dataset.group;
+        this._editGroup(groupId);
+      });
+    });
+
+    // Summary — 所有持仓合计
+    const total = this._portfolio.computePnL(this._quoteCache);
+    const totalPnlCls = window.colorClass(total.totalPnl);
     const sumEl = document.getElementById('portfolioSummary');
-    if (details.length === 0) { sumEl.innerHTML = ''; return; }
-    const totalPnlCls = window.colorClass(totalPnl);
     sumEl.innerHTML = `
-      <div class="pf-sum-row"><span class="pf-sum-label">总市值</span><span class="pf-sum-value">${window.fmtAmount(totalMarketValue)}</span></div>
-      <div class="pf-sum-row"><span class="pf-sum-label">总成本</span><span class="pf-sum-value">${window.fmtAmount(totalCost)}</span></div>
-      <div class="pf-sum-row"><span class="pf-sum-label">总盈亏</span><span class="pf-sum-value ${totalPnlCls}">${window.signStr(totalPnl)} (${window.signStr(totalPnlPct)}%)</span></div>`;
+      <div class="pf-sum-row"><span class="pf-sum-label">总市值</span><span class="pf-sum-value">${window.fmtAmount(total.totalMarketValue)}</span></div>
+      <div class="pf-sum-row"><span class="pf-sum-label">总成本</span><span class="pf-sum-value">${window.fmtAmount(total.totalCost)}</span></div>
+      <div class="pf-sum-row"><span class="pf-sum-label">总盈亏</span><span class="pf-sum-value ${totalPnlCls}">${window.signStr(total.totalPnl)} (${window.signStr(total.totalPnlPct)}%)</span></div>`;
+  }
+
+  /* ---- 分组管理 ---- */
+  async _editGroup(groupId) {
+    const g = this._portfolio.getGroupById(groupId);
+    if (!g) return;
+
+    const result = await showModal(`编辑分组 — ${g.name}`, [
+      { key: 'name', label: '分组名称', type: 'text', value: g.name },
+      { key: 'color', label: '颜色（如 #e74c3c）', type: 'text', value: g.color },
+    ], [
+      { key: 'delete', label: '删除分组', danger: groupId !== 'default' },
+      { key: 'cancel', label: '取消' },
+      { key: 'confirm', label: '保存', primary: true },
+    ]);
+
+    if (!result) return;
+    if (result.action === 'delete' && groupId !== 'default') {
+      this._portfolio.removeGroup(groupId);
+      this._toast('分组已删除，持仓移至默认分组');
+      this._renderPortfolio();
+      return;
+    }
+    if (result.action === 'confirm') {
+      this._portfolio.updateGroup(groupId, result.values.name, result.values.color);
+      this._toast('分组已更新');
+      this._renderPortfolio();
+    }
   }
 
   async _addPortfolioFromSearch(code, name) {
     // Ensure in watchlist first
     if (!this._watchCodes.includes(code)) this.addToWatchlist(code, name);
 
+    const groups = this._portfolio.getGroups();
+    const groupOptions = groups.map(g => ({ value: g.id, label: g.name }));
+    groupOptions.push({ value: '_new', label: '+ 新建分组' });
+
     const result = await showModal(`添加持仓 — ${name}`, [
       { key: 'costPrice', label: '成本价', type: 'number', placeholder: '0.00', step: '0.001' },
       { key: 'quantity',  label: '持仓数量', type: 'number', placeholder: '100', step: '1' },
+      { key: 'group', label: '分组', type: 'select', value: 'default', options: groupOptions },
     ], [
       { key: 'cancel', label: '取消' },
       { key: 'confirm', label: '确认添加', primary: true },
     ]);
     if (!result || result.action !== 'confirm') return;
+
     const costPrice = parseFloat(result.values.costPrice);
     const quantity = parseInt(result.values.quantity, 10);
     if (isNaN(costPrice) || costPrice <= 0 || isNaN(quantity) || quantity <= 0) {
       this._toast('请输入有效的成本价和数量'); return;
     }
-    this._portfolio.add(code, name, costPrice, quantity);
+
+    let groupId = result.values.group;
+    if (groupId === '_new') {
+      const newGroupName = prompt('请输入新分组名称：');
+      if (!newGroupName) groupId = 'default';
+      else groupId = this._portfolio.addGroup(newGroupName);
+    }
+
+    this._portfolio.add(code, name, costPrice, quantity, groupId);
     this._toast(`✓ 已添加 ${name} 持仓`);
     this._renderPortfolio();
   }
@@ -406,9 +498,15 @@ class App {
   async _editPortfolioItem(code) {
     const item = this._portfolio.getByCode(code);
     if (!item) return;
+
+    const groups = this._portfolio.getGroups();
+    const groupOptions = groups.map(g => ({ value: g.id, label: g.name }));
+    groupOptions.push({ value: '_new', label: '+ 新建分组' });
+
     const result = await showModal(`编辑持仓 — ${item.name}`, [
       { key: 'costPrice', label: '成本价', type: 'number', value: item.costPrice, step: '0.001' },
       { key: 'quantity',  label: '持仓数量', type: 'number', value: item.quantity, step: '1' },
+      { key: 'group', label: '分组', type: 'select', value: item.group || 'default', options: groupOptions },
     ], [
       { key: 'delete', label: '删除持仓', danger: true },
       { key: 'cancel', label: '取消' },
@@ -424,7 +522,16 @@ class App {
       if (isNaN(costPrice) || costPrice <= 0 || isNaN(quantity) || quantity <= 0) {
         this._toast('请输入有效的成本价和数量'); return;
       }
+
+      let groupId = result.values.group;
+      if (groupId === '_new') {
+        const newGroupName = prompt('请输入新分组名称：');
+        if (!newGroupName) groupId = 'default';
+        else groupId = this._portfolio.addGroup(newGroupName);
+      }
+
       this._portfolio.update(code, costPrice, quantity);
+      this._portfolio.updateGroupOf(code, groupId);
       this._toast('持仓已更新'); this._renderPortfolio();
     }
   }
@@ -586,6 +693,9 @@ class App {
       this._renderPortfolio();
     });
 
+    // 分组管理按钮
+    document.getElementById('addGroupBtn').addEventListener('click', () => this._createGroup());
+
     // Search
     let _searchTimer = null;
     const searchInput = document.getElementById('searchInput');
@@ -635,9 +745,27 @@ class App {
       document.querySelectorAll('.pnl-quick-btn').forEach(b => b.classList.remove('active'));
     });
 
-    // 默认起始日期：3个月前（对应"近3月"按钮选中）
+    // 默认起始日期：3个月前
     const threeMonthsAgo = new Date(); threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3);
     document.getElementById('pnlStartDate').value = threeMonthsAgo.toISOString().slice(0,10);
+  }
+
+  /* ---- 分组创建 ---- */
+  async _createGroup() {
+    const result = await showModal('新建分组', [
+      { key: 'name', label: '分组名称', type: 'text', placeholder: '如：换仓后' },
+      { key: 'color', label: '颜色（如 #e74c3c）', type: 'text', placeholder: '#3498db' },
+    ], [
+      { key: 'cancel', label: '取消' },
+      { key: 'confirm', label: '创建', primary: true },
+    ]);
+    if (!result || result.action !== 'confirm') return;
+    const name = result.values.name.trim();
+    if (!name) { this._toast('请输入分组名称'); return; }
+    const color = result.values.color.trim() || undefined;
+    this._portfolio.addGroup(name, color);
+    this._toast(`✓ 分组「${name}」已创建`);
+    this._renderPortfolio();
   }
 
   async _doSearch(keyword) {
@@ -718,7 +846,54 @@ class App {
   _showPnlCurveModal() {
     const items = this._portfolio.getAll();
     if (items.length === 0) { this._toast('请先添加持仓'); return; }
+
+    // 渲染分组勾选区
+    this._renderPnlGroupCheckboxes();
     document.getElementById('pnlCurveModal').style.display = 'flex';
+  }
+
+  _renderPnlGroupCheckboxes() {
+    const container = document.getElementById('pnlGroupChecks');
+    const groups = this._portfolio.getGroups();
+    const items = this._portfolio.getAll();
+
+    // 只显示有持仓的分组
+    const activeGroups = groups.filter(g =>
+      items.some(it => (it.group || 'default') === g.id)
+    );
+
+    // 初始化勾选状态：默认全部勾选
+    activeGroups.forEach(g => {
+      if (this._pnlGroupChecked[g.id] === undefined) this._pnlGroupChecked[g.id] = true;
+    });
+
+    container.innerHTML = activeGroups.map(g => {
+      const checked = this._pnlGroupChecked[g.id] !== false;
+      return `<label class="pnl-group-check">
+        <input type="checkbox" data-group="${g.id}" ${checked ? 'checked' : ''} />
+        <span class="pnl-group-dot" style="background:${g.color}"></span>
+        ${g.name}
+      </label>`;
+    }).join('');
+
+    // 对比模式开关（至少有2个分组时显示）
+    const compareSwitch = document.getElementById('pnlCompareSwitch');
+    if (compareSwitch) {
+      compareSwitch.style.display = activeGroups.length >= 2 ? 'flex' : 'none';
+    }
+
+    // 虚拟对比线开关（至少有2个分组时显示）
+    const virtualSwitch = document.getElementById('pnlVirtualSwitch');
+    if (virtualSwitch) {
+      virtualSwitch.style.display = activeGroups.length >= 2 ? 'flex' : 'none';
+    }
+
+    // 绑定 checkbox 事件
+    container.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+      cb.addEventListener('change', () => {
+        this._pnlGroupChecked[cb.dataset.group] = cb.checked;
+      });
+    });
   }
 
   async _loadPnlCurve() {
@@ -728,16 +903,27 @@ class App {
     const items = this._portfolio.getAll();
     if (items.length === 0) { this._toast('请先添加持仓'); return; }
 
+    const groups = this._portfolio.getGroups();
+    const checkedGroupIds = groups
+      .filter(g => this._pnlGroupChecked[g.id] !== false)
+      .map(g => g.id);
+
+    if (checkedGroupIds.length === 0) {
+      this._toast('请至少勾选一个分组'); return;
+    }
+
     const chartEl = document.getElementById('pnlCurveChart');
-    // 销毁旧实例，避免二次查询报错
     if (this._pnlChart) {
       this._pnlChart.dispose();
       this._pnlChart = null;
     }
     chartEl.innerHTML = '<div style="text-align:center;padding:60px;color:#999">加载中…</div>';
 
+    const compareMode = document.getElementById('pnlCompareSwitch')?.querySelector('input')?.checked;
+    const showVirtual = document.getElementById('pnlVirtualSwitch')?.querySelector('input')?.checked;
+
     try {
-      // 取每只持仓股票的日线K线（取600条确保覆盖起始日期）
+      // 取每只持仓股票的日线K线
       const allKlines = {};
       await Promise.all(items.map(async (item) => {
         try {
@@ -758,14 +944,14 @@ class App {
         return;
       }
 
-      // 构建每日收盘价映射 date -> { code: closePrice }
+      // 构建每日收盘价映射
       const closeMap = {};
       dates.forEach(d => { closeMap[d] = {}; });
       Object.entries(allKlines).forEach(([code, klines]) => {
         klines.forEach(k => { if (closeMap[k.date]) closeMap[k.date][code] = Number(k.close); });
       });
 
-      // 前向填充：如果某天某股票没有数据，用最近的前一个交易日的收盘价
+      // 前向填充
       const codeList = items.map(it => it.code);
       const lastClose = {};
       dates.forEach(d => {
@@ -778,122 +964,249 @@ class App {
         });
       });
 
-      // 计算每日总市值和总成本
-      const marketValues = [];
-      const costValues = [];
-      let totalCost = 0;
-      items.forEach(it => { totalCost += it.costPrice * it.quantity; });
-
-      dates.forEach(d => {
-        let mv = 0;
-        items.forEach(it => {
-          const close = closeMap[d][it.code] || 0;
-          mv += close * it.quantity;
-        });
-        marketValues.push(parseFloat(mv.toFixed(2)));
-        costValues.push(parseFloat(totalCost.toFixed(2)));
-      });
-
-      // 盈亏曲线
-      const pnlValues = marketValues.map((mv, i) => parseFloat((mv - costValues[i]).toFixed(2)));
-      const pnlPctValues = costValues.map((cost, i) =>
-        cost > 0 ? parseFloat(((pnlValues[i] / cost) * 100).toFixed(2)) : 0
-      );
-
-      // ---- 个股独立盈亏曲线 ----
-      const COLORS = ['#e74c3c', '#3498db', '#f39c12', '#9b59b6', '#1abc9c', '#e67e22', '#2ecc71', '#34495e'];
-      const showIndividual = items.length < 4;
-
-      // 计算每只持仓的独立盈亏
-      const individualPnl = items.map((item, idx) => {
-        const values = dates.map(d => {
-          const close = closeMap[d][item.code] || 0;
-          return parseFloat(((close - item.costPrice) * item.quantity).toFixed(2));
-        });
-        const maxVal = Math.max(...values);
-        const minVal = Math.min(...values);
-        return { item, values, maxVal, minVal, color: COLORS[idx % COLORS.length] };
-      });
-
-      // 合并盈亏的 markLine
-      const pnlMax = Math.max(...pnlValues);
-      const pnlMin = Math.min(...pnlValues);
-
-      // 构建 series 数组
+      // ---- 构建各分组的盈亏曲线 ----
+      const COLORS = ['#3498db', '#e74c3c', '#f39c12', '#9b59b6', '#1abc9c', '#e67e22', '#2ecc71', '#34495e'];
       const seriesList = [];
-      const legendData = ['总市值', '总成本', '盈亏金额'];
+      const legendData = [];
 
-      // 总市值
-      seriesList.push({
-        name: '总市值', type: 'line', data: marketValues,
-        lineStyle: { color: '#3498db', width: 2 },
-        itemStyle: { color: '#3498db' }, symbol: 'none',
-        areaStyle: { color: 'rgba(52,152,219,0.08)' },
-      });
+      if (!compareMode) {
+        // ===== 普通模式：合并所有勾选分组的持仓，画一条总盈亏线 =====
+        const activeItems = items.filter(it => checkedGroupIds.includes(it.group || 'default'));
+        let totalCost = 0;
+        activeItems.forEach(it => { totalCost += it.costPrice * it.quantity; });
 
-      // 总成本
-      seriesList.push({
-        name: '总成本', type: 'line', data: costValues,
-        lineStyle: { color: '#999', width: 1, type: 'dashed' },
-        itemStyle: { color: '#999' }, symbol: 'none',
-      });
+        const marketValues = [];
+        const costValues = [];
+        dates.forEach(d => {
+          let mv = 0;
+          activeItems.forEach(it => {
+            mv += (closeMap[d][it.code] || 0) * it.quantity;
+          });
+          marketValues.push(parseFloat(mv.toFixed(2)));
+          costValues.push(parseFloat(totalCost.toFixed(2)));
+        });
 
-      // 盈亏金额（合并）+ markLine
-      seriesList.push({
-        name: '盈亏金额', type: 'line', data: pnlValues,
-        lineStyle: { width: 2 },
-        itemStyle: { color: '#e74c3c' }, symbol: 'none',
-        areaStyle: {
-          color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-            { offset: 0, color: 'rgba(231,76,60,0.15)' },
-            { offset: 1, color: 'rgba(46,204,113,0.15)' },
-          ]),
-        },
-        visualMap: false,
-        pieces: [
-          { min: 0, color: '#e74c3c' },
-          { max: 0, color: '#2ecc71' },
-        ],
-        markLine: {
-          silent: true,
-          symbol: 'none',
-          lineStyle: { type: 'dashed', width: 1 },
-          label: { fontSize: 10, fontFamily: 'Consolas,monospace', formatter: (p) => p.name + ' ' + window.fmt(p.value) },
-          data: [
-            { name: '最高', yAxis: pnlMax, lineStyle: { color: '#e74c3c' }, label: { color: '#e74c3c' } },
-            { name: '最低', yAxis: pnlMin, lineStyle: { color: '#2ecc71' }, label: { color: '#2ecc71' } },
-          ],
-        },
-      });
+        const pnlValues = marketValues.map((mv, i) => parseFloat((mv - costValues[i]).toFixed(2)));
+        const pnlMax = Math.max(...pnlValues);
+        const pnlMin = Math.min(...pnlValues);
 
-      // 个股独立盈亏曲线（仅持仓 < 4 时展示）
-      if (showIndividual) {
-        individualPnl.forEach(({ item, values, maxVal, minVal, color }) => {
-          const seriesName = item.name;
+        legendData.push('总市值', '总成本', '盈亏金额');
+        seriesList.push({
+          name: '总市值', type: 'line', data: marketValues,
+          lineStyle: { color: '#3498db', width: 2 }, itemStyle: { color: '#3498db' }, symbol: 'none',
+          areaStyle: { color: 'rgba(52,152,219,0.08)' },
+        });
+        seriesList.push({
+          name: '总成本', type: 'line', data: costValues,
+          lineStyle: { color: '#999', width: 1, type: 'dashed' }, itemStyle: { color: '#999' }, symbol: 'none',
+        });
+        seriesList.push({
+          name: '盈亏金额', type: 'line', data: pnlValues,
+          lineStyle: { width: 2 }, itemStyle: { color: '#e74c3c' }, symbol: 'none',
+          areaStyle: {
+            color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+              { offset: 0, color: 'rgba(231,76,60,0.15)' },
+              { offset: 1, color: 'rgba(46,204,113,0.15)' },
+            ]),
+          },
+          visualMap: false,
+          pieces: [{ min: 0, color: '#e74c3c' }, { max: 0, color: '#2ecc71' }],
+          markLine: {
+            silent: true, symbol: 'none',
+            lineStyle: { type: 'dashed', width: 1 },
+            label: { fontSize: 10, fontFamily: 'Consolas,monospace', formatter: (p) => p.name + ' ' + window.fmt(p.value) },
+            data: [
+              { name: '最高', yAxis: pnlMax, lineStyle: { color: '#e74c3c' }, label: { color: '#e74c3c' } },
+              { name: '最低', yAxis: pnlMin, lineStyle: { color: '#2ecc71' }, label: { color: '#2ecc71' } },
+            ],
+          },
+        });
+
+        // 个股独立曲线（持仓 < 4 时展示）
+        if (activeItems.length < 4) {
+          activeItems.forEach((item, idx) => {
+            const values = dates.map(d => {
+              const close = closeMap[d][item.code] || 0;
+              return parseFloat(((close - item.costPrice) * item.quantity).toFixed(2));
+            });
+            const maxVal = Math.max(...values);
+            const minVal = Math.min(...values);
+            const color = COLORS[idx % COLORS.length];
+            legendData.push(item.name);
+            seriesList.push({
+              name: item.name, type: 'line', data: values,
+              lineStyle: { color, width: 1.5, type: 'dashed' }, itemStyle: { color }, symbol: 'none',
+              markLine: {
+                silent: true, symbol: 'none',
+                lineStyle: { type: 'dashed', width: 1 },
+                label: { fontSize: 9, fontFamily: 'Consolas,monospace', formatter: (p) => p.name + ' ' + window.fmt(p.value) },
+                data: [
+                  { name: '高', yAxis: maxVal, lineStyle: { color }, label: { color } },
+                  { name: '低', yAxis: minVal, lineStyle: { color, opacity: 0.6 }, label: { color, opacity: 0.7 } },
+                ],
+              },
+            });
+          });
+        }
+
+      } else {
+        // ===== 对比模式：每个分组独立画盈亏曲线 =====
+        const groupSeriesData = [];  // { group, pnlValues, marketValues, costValues }
+
+        checkedGroupIds.forEach((groupId, idx) => {
+          const group = groups.find(g => g.id === groupId);
+          const groupItems = items.filter(it => (it.group || 'default') === groupId);
+          if (groupItems.length === 0) return;
+
+          let totalCost = 0;
+          groupItems.forEach(it => { totalCost += it.costPrice * it.quantity; });
+
+          const marketValues = [];
+          const costValues = [];
+          dates.forEach(d => {
+            let mv = 0;
+            groupItems.forEach(it => {
+              mv += (closeMap[d][it.code] || 0) * it.quantity;
+            });
+            marketValues.push(parseFloat(mv.toFixed(2)));
+            costValues.push(parseFloat(totalCost.toFixed(2)));
+          });
+
+          const pnlValues = marketValues.map((mv, i) => parseFloat((mv - costValues[i]).toFixed(2)));
+          const pnlMax = Math.max(...pnlValues);
+          const pnlMin = Math.min(...pnlValues);
+          const color = group ? group.color : COLORS[idx % COLORS.length];
+          const seriesName = group ? group.name : `分组${idx + 1}`;
+
+          groupSeriesData.push({ group: groupId, pnlValues, marketValues, costValues, items: groupItems });
+
           legendData.push(seriesName);
           seriesList.push({
-            name: seriesName,
-            type: 'line',
-            data: values,
-            lineStyle: { color, width: 1.5, type: 'dashed' },
-            itemStyle: { color },
-            symbol: 'none',
+            name: seriesName, type: 'line', data: pnlValues,
+            lineStyle: { color, width: 2.5 }, itemStyle: { color }, symbol: 'none',
             markLine: {
-              silent: true,
-              symbol: 'none',
+              silent: true, symbol: 'none',
               lineStyle: { type: 'dashed', width: 1 },
               label: { fontSize: 9, fontFamily: 'Consolas,monospace', formatter: (p) => p.name + ' ' + window.fmt(p.value) },
               data: [
-                { name: '高', yAxis: maxVal, lineStyle: { color }, label: { color } },
-                { name: '低', yAxis: minVal, lineStyle: { color, opacity: 0.6 }, label: { color, opacity: 0.7 } },
+                { name: seriesName + '高', yAxis: pnlMax, lineStyle: { color }, label: { color } },
+                { name: seriesName + '低', yAxis: pnlMin, lineStyle: { color, opacity: 0.5 }, label: { color, opacity: 0.6 } },
               ],
             },
           });
+
+          // 个股独立曲线（每组持仓 < 4 时）
+          if (groupItems.length < 4) {
+            groupItems.forEach((item, iidx) => {
+              const values = dates.map(d => {
+                const close = closeMap[d][item.code] || 0;
+                return parseFloat(((close - item.costPrice) * item.quantity).toFixed(2));
+              });
+              const maxVal = Math.max(...values);
+              const minVal = Math.min(...values);
+              const itemColor = COLORS[(idx * 3 + iidx) % COLORS.length];
+              legendData.push(item.name);
+              seriesList.push({
+                name: item.name, type: 'line', data: values,
+                lineStyle: { color: itemColor, width: 1, type: 'dashed' }, itemStyle: { color: itemColor }, symbol: 'none',
+                markLine: {
+                  silent: true, symbol: 'none',
+                  lineStyle: { type: 'dashed', width: 1 },
+                  label: { fontSize: 8, fontFamily: 'Consolas,monospace', formatter: (p) => window.fmt(p.value) },
+                  data: [
+                    { name: '高', yAxis: maxVal, lineStyle: { color: itemColor, opacity: 0.5 }, label: { color: itemColor } },
+                    { name: '低', yAxis: minVal, lineStyle: { color: itemColor, opacity: 0.3 }, label: { color: itemColor, opacity: 0.5 } },
+                  ],
+                },
+              });
+            });
+          }
         });
+
+        // ===== 虚拟对比线："假设没换" =====
+        // 逻辑：用分组A（如"原始持仓"）的成本和数量 × 分组B（如"换仓后"）的股票走势
+        // 即：如果一直拿着旧基金，盈亏会怎样
+        if (showVirtual && checkedGroupIds.length >= 2) {
+          const groupA = checkedGroupIds[0]; // 原始分组
+          const groupB = checkedGroupIds[1]; // 换仓后分组
+          const itemsA = items.filter(it => (it.group || 'default') === groupA);
+          const itemsB = items.filter(it => (it.group || 'default') === groupB);
+          const groupAInfo = groups.find(g => g.id === groupA);
+          const groupBInfo = groups.find(g => g.id === groupB);
+
+          // 虚拟线1：用B的收益率 × A的本金（即"如果A的本金买了B会怎样"）
+          if (itemsA.length > 0 && itemsB.length > 0) {
+            const costA = itemsA.reduce((sum, it) => sum + it.costPrice * it.quantity, 0);
+            const bTotalCost = itemsB.reduce((s, it) => s + it.costPrice * it.quantity, 0);
+            const groupAName = groupAInfo ? groupAInfo.name : '原始持仓';
+            const groupBName = groupBInfo ? groupBInfo.name : '换仓后';
+
+            const virtualPnl = dates.map(d => {
+              let bMarketValue = 0;
+              itemsB.forEach(it => {
+                bMarketValue += (closeMap[d][it.code] || 0) * it.quantity;
+              });
+              // B 的收益率 × A 的本金 = 假设A的本金买了B的盈亏
+              const bReturn = bTotalCost > 0 ? (bMarketValue - bTotalCost) / bTotalCost : 0;
+              return parseFloat((costA * bReturn).toFixed(2));
+            });
+
+            const vMax = Math.max(...virtualPnl);
+            const vMin = Math.min(...virtualPnl);
+            const vName = `假设${groupAName}买${groupBName}`;
+
+            legendData.push(vName);
+            seriesList.push({
+              name: vName, type: 'line', data: virtualPnl,
+              lineStyle: { color: '#95a5a6', width: 2, type: 'dotted' },
+              itemStyle: { color: '#95a5a6' }, symbol: 'none',
+              markLine: {
+                silent: true, symbol: 'none',
+                lineStyle: { type: 'dotted', width: 1 },
+                label: { fontSize: 9, fontFamily: 'Consolas,monospace', formatter: (p) => p.name + ' ' + window.fmt(p.value) },
+                data: [
+                  { name: '高', yAxis: vMax, lineStyle: { color: '#95a5a6' }, label: { color: '#95a5a6' } },
+                  { name: '低', yAxis: vMin, lineStyle: { color: '#95a5a6', opacity: 0.5 }, label: { color: '#95a5a6', opacity: 0.6 } },
+                ],
+              },
+            });
+          }
+
+          // 虚拟线2：A的成本 × A的走势（即"如果不换继续持有A"）
+          if (itemsA.length > 0) {
+            const costA = itemsA.reduce((sum, it) => sum + it.costPrice * it.quantity, 0);
+            const holdPnl = dates.map(d => {
+              let mvA = 0;
+              itemsA.forEach(it => {
+                mvA += (closeMap[d][it.code] || 0) * it.quantity;
+              });
+              return parseFloat((mvA - costA).toFixed(2));
+            });
+            const hMax = Math.max(...holdPnl);
+            const hMin = Math.min(...holdPnl);
+            const groupAName = groupAInfo ? groupAInfo.name : '原始持仓';
+
+            legendData.push(`${groupAName}继续持有`);
+            seriesList.push({
+              name: `${groupAName}继续持有`, type: 'line', data: holdPnl,
+              lineStyle: { color: '#bdc3c7', width: 1.5, type: [4, 4] },
+              itemStyle: { color: '#bdc3c7' }, symbol: 'none',
+              markLine: {
+                silent: true, symbol: 'none',
+                lineStyle: { type: 'dotted', width: 1 },
+                label: { fontSize: 9, fontFamily: 'Consolas,monospace', formatter: (p) => window.fmt(p.value) },
+                data: [
+                  { name: '高', yAxis: hMax, lineStyle: { color: '#bdc3c7' }, label: { color: '#bdc3c7' } },
+                  { name: '低', yAxis: hMin, lineStyle: { color: '#bdc3c7', opacity: 0.5 }, label: { color: '#bdc3c7', opacity: 0.6 } },
+                ],
+              },
+            });
+          }
+        }
       }
 
       // 用 ECharts 渲染
-      chartEl.innerHTML = ''; // 清除加载提示
+      chartEl.innerHTML = '';
       this._pnlChart = echarts.init(chartEl);
 
       this._pnlChart.setOption({
@@ -902,33 +1215,19 @@ class App {
           trigger: 'axis',
           formatter: function(params) {
             const date = params[0].axisValue;
-            const pnl = params.find(p => p.seriesName === '盈亏金额');
-            const mv = params.find(p => p.seriesName === '总市值');
             let s = `<b>${date}</b><br>`;
-            if (mv) s += `总市值: ${window.fmtAmount(mv.value)}<br>`;
-            if (pnl) s += `盈亏: <span style="color:${pnl.value >= 0 ? '#e74c3c' : '#2ecc71'}">${window.signStr(pnl.value)}</span><br>`;
-            const pctIdx = params[0].dataIndex;
-            s += `盈亏比例: <span style="color:${pnlPctValues[pctIdx] >= 0 ? '#e74c3c' : '#2ecc71'}">${window.signStr(pnlPctValues[pctIdx])}%</span>`;
-            // 个股盈亏
-            const indivParams = params.filter(p => {
-              const it = items.find(x => x.name === p.seriesName);
-              return !!it;
+            params.forEach(p => {
+              const clr = p.value >= 0 ? '#e74c3c' : '#2ecc71';
+              s += `<span style="color:${p.color}">●</span> ${p.seriesName}: <span style="color:${clr}">${window.signStr(p.value)}</span><br>`;
             });
-            if (indivParams.length > 0) {
-              s += '<br>──<br>';
-              indivParams.forEach(p => {
-                const clr = p.value >= 0 ? '#e74c3c' : '#2ecc71';
-                s += `<span style="color:${p.color}">${p.seriesName}</span>: <span style="color:${clr}">${window.signStr(p.value)}</span><br>`;
-              });
-            }
             return s;
           }
         },
-        legend: { data: legendData, top: 0, textStyle: { fontSize: 11 } },
+        legend: { data: legendData, top: 0, textStyle: { fontSize: 11 }, type: 'scroll' },
         grid: { left: 60, right: 30, top: 40, bottom: 30 },
         xAxis: { type: 'category', data: dates, axisLabel: { fontSize: 10 } },
         yAxis: [
-          { type: 'value', name: '金额', axisLabel: { fontSize: 10, formatter: v => v >= 1e8 ? (v/1e8).toFixed(1)+'亿' : v >= 1e4 ? (v/1e4).toFixed(0)+'万' : v } },
+          { type: 'value', name: '盈亏金额', axisLabel: { fontSize: 10, formatter: v => v >= 1e8 ? (v/1e8).toFixed(1)+'亿' : v >= 1e4 ? (v/1e4).toFixed(0)+'万' : v } },
         ],
         series: seriesList,
         dataZoom: [{ type: 'inside' }],

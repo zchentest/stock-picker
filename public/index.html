@@ -47,6 +47,7 @@
             <span>盈亏比例</span>
             <div class="pf-toggle-switch" id="pctToggle"></div>
           </div>
+          <button class="pf-add-group-btn" id="addGroupBtn" title="新建分组">+ 分组</button>
         </div>
         <div class="portfolio-list" id="portfolioList"></div>
         <div class="portfolio-summary" id="portfolioSummary"></div>
@@ -72,6 +73,20 @@
             <span class="pnl-date-sep">|</span>
             <input type="date" id="pnlStartDate" class="pnl-date-input">
             <button id="pnlCurveGo" class="pnl-query-btn">查询</button>
+          </div>
+          <!-- 分组勾选 + 对比模式 -->
+          <div class="pnl-group-bar">
+            <div id="pnlGroupChecks" class="pnl-group-checks"></div>
+            <div class="pnl-switch-bar">
+              <label class="pnl-switch" id="pnlCompareSwitch" style="display:none">
+                <input type="checkbox" />
+                <span>分组对比</span>
+              </label>
+              <label class="pnl-switch" id="pnlVirtualSwitch" style="display:none">
+                <input type="checkbox" />
+                <span>虚拟对比线</span>
+              </label>
+            </div>
           </div>
           <div id="pnlCurveChart" style="width:100%;height:380px"></div>
         </div>

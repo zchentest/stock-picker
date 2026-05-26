@@ -425,3 +425,60 @@ html, body { height: 100%; font-family: var(--font-sans); font-size: 13px;
   from { transform: translateX(120%); opacity: 0; }
   to   { transform: translateX(0);    opacity: 1; }
 }
+
+/* ==================== Portfolio Group ==================== */
+.pf-group-header {
+  display: flex; align-items: center; gap: 6px;
+  padding: 6px 12px; background: var(--bg-tertiary);
+  border-bottom: 1px solid var(--border-light); cursor: default;
+}
+.pf-group-dot {
+  width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+}
+.pf-group-name {
+  font-size: 11px; font-weight: 600; color: var(--text-secondary); flex: 1;
+}
+.pf-group-summary {
+  font-size: 11px; font-family: var(--font-mono); font-weight: 600;
+}
+.pf-group-edit {
+  font-size: 12px; color: var(--text-muted); cursor: pointer;
+  opacity: 0; transition: opacity .15s;
+}
+.pf-group-header:hover .pf-group-edit { opacity: 1; }
+.pf-group-edit:hover { color: var(--accent); }
+
+.pf-add-group-btn {
+  padding: 3px 10px; border-radius: 4px; border: 1px dashed var(--border);
+  background: transparent; color: var(--text-muted); font-size: 11px;
+  cursor: pointer; transition: all .15s; white-space: nowrap;
+}
+.pf-add-group-btn:hover { border-color: var(--accent); color: var(--accent); border-style: solid; }
+
+/* 分组勾选 */
+.pnl-group-bar {
+  display: flex; align-items: center; gap: 12px; margin-bottom: 10px; flex-wrap: wrap;
+}
+.pnl-group-checks {
+  display: flex; gap: 8px; flex-wrap: wrap; flex: 1;
+}
+.pnl-group-check {
+  display: flex; align-items: center; gap: 4px;
+  padding: 3px 10px; border-radius: 14px; border: 1px solid var(--border);
+  background: var(--bg-secondary); font-size: 12px; color: var(--text-primary);
+  cursor: pointer; transition: all .15s; white-space: nowrap;
+}
+.pnl-group-check:hover { border-color: var(--accent); }
+.pnl-group-check input[type="checkbox"] { margin: 0; accent-color: var(--accent); }
+.pnl-group-dot-sm {
+  width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0;
+}
+
+.pnl-switch-bar {
+  display: flex; gap: 10px; align-items: center;
+}
+.pnl-switch {
+  display: flex; align-items: center; gap: 4px; font-size: 12px;
+  color: var(--text-secondary); cursor: pointer; white-space: nowrap;
+}
+.pnl-switch input[type="checkbox"] { margin: 0; accent-color: var(--accent); }
