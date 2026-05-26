@@ -43,7 +43,7 @@ html, body { height: 100%; font-family: var(--font-sans); font-size: 13px;
   box-shadow: var(--shadow-card);
 }
 .logo { display: flex; align-items: center; gap: 8px; text-decoration: none; flex-shrink: 0; }
-.logo-svg { border-radius: 6px; flex-shrink: 0; }
+.logo-img { width: 28px; height: 28px; border-radius: 6px; flex-shrink: 0; object-fit: cover; box-shadow: 0 1px 3px rgba(0,0,0,.1); }
 .logo-text { font-size: 14px; font-weight: 700; color: var(--text-primary); letter-spacing: 0.5px; white-space: nowrap; }
 
 .search-box { position: relative; flex: 0 0 230px; }
